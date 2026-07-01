@@ -4,9 +4,9 @@ A hobby x86_64 operating system, built completely from scratch: no existing kern
 
 gOS boots via [Limine](https://github.com/limine-bootloader/limine) into a desktop with a background, a taskbar, and a "Files" launcher icon; draws directly to a framebuffer; runs its own windowing system with draggable/overlappable/closable windows; renders its own bitmap-font text; reads and writes a real FAT32 disk image through a hand-written ATA PIO driver; and has a graphical File Manager with full CRUD — create folders/files, open and edit text files, save with Ctrl+S, delete, and rename — all backed by the real filesystem, not a mock. Unhandled CPU exceptions show a red kernel panic screen instead of silently hanging.
 
-Development is tracked as a sequence of phases in [PROJECT_PLAN.md](PROJECT_PLAN.md); each completed phase has its own detailed write-up (`phase0.md` through `phase11.md`) with what was built, how it was tested, and any bugs found along the way.
+Development is tracked as a sequence of phases in [PROJECT_PLAN.md](PROJECT_PLAN.md); each completed phase has its own detailed write-up (`phase0.md` through `phase11.md`) with what was built, how it was tested, and any bugs found along the way. Past v1.0, [phase-patch.md](phase-patch.md) documents a follow-up patch (a real hang fix plus unlabeled-button UX fix), and [audit.md](audit.md) is a standalone, read-only flaw audit of the whole kernel.
 
-**Status: v1.0 — all 12 phases (0–11) complete.** Toolchain → bootloader → interrupts → memory management → drivers → graphics → windowing → fonts/text input → FAT32 filesystem → file manager UI → CRUD operations → polish/stability. This is the plan's own described v1 finish line — see [PROJECT_PLAN.md](PROJECT_PLAN.md) for the full roadmap and `git tag` for the `v1.0` marker.
+**Status: v1.0 — all 12 phases (0–11) complete, plus one post-v1.0 patch.** Toolchain → bootloader → interrupts → memory management → drivers → graphics → windowing → fonts/text input → FAT32 filesystem → file manager UI → CRUD operations → polish/stability. This is the plan's own described v1 finish line — see [PROJECT_PLAN.md](PROJECT_PLAN.md) for the full roadmap and `git tag` for the `v1.0` marker. A desktop-hang bug (the main loop halting after ~25 seconds of real interactive use) and unlabeled buttons were found and fixed after tagging — see [phase-patch.md](phase-patch.md).
 
 ---
 
@@ -224,6 +224,18 @@ An animated GIF assembled from real QEMU screendumps spanning the whole flow —
 
 ![Full boot-to-CRUD demo](screenshots/phase11_demo.gif)
 
+### Post-v1.0 Patch — Stability & UX fixes
+
+**Buttons now have readable labels** ([phase-patch.md](phase-patch.md))
+Every button in the OS used to be a bare colored rectangle with no text. Window A's demo button now reads "Click Me", proving the fix applies OS-wide, not just to one window.
+
+![Labeled buttons](screenshots/phase-patch_labels.png)
+
+**Desktop still responsive ~48 seconds in** ([phase-patch.md](phase-patch.md))
+The main desktop loop used to be bounded to ~25 seconds (a leftover from headless test scripts) and would silently halt forever after that — indistinguishable from a hang during real interactive use. This screenshot, taken ~48 seconds into a live session, shows the File Manager successfully launched by a click sent well past the old cutoff, and its toolbar buttons ("Up", "New Folder", "New File", "Delete", "Rename") now labeled too.
+
+![Desktop still alive and interactive past the old 25-second cutoff](screenshots/phase-patch_still_alive_48s.png)
+
 ---
 
 ## Project structure
@@ -242,6 +254,8 @@ build/               compiled kernel + ISO (gitignored)
 screenshots/         milestone screenshots (including phase11_demo.gif) referenced above and in the phase docs
 PROJECT_PLAN.md      the full phase-by-phase roadmap and status tracker
 phase0.md ... phase11.md   detailed completion report for each finished phase
+phase-patch.md       post-v1.0 patch: a real hang fix + unlabeled-button UX fix
+audit.md             standalone, read-only flaw audit of the entire kernel (24 ranked findings)
 ```
 
 ---
@@ -250,3 +264,5 @@ phase0.md ... phase11.md   detailed completion report for each finished phase
 
 - [PROJECT_PLAN.md](PROJECT_PLAN.md) — full project scope, phase breakdown, dependency graph, and status tracker
 - `phase0.md` through `phase11.md` — one detailed write-up per completed phase: what was built, exact commands to reproduce every test, and any real bugs found (with symptom/diagnosis/fix)
+- [phase-patch.md](phase-patch.md) — the post-v1.0 patch: diagnosis and fix for a real desktop-hang bug, plus the unlabeled-button UX fix
+- [audit.md](audit.md) — a read-only, no-changes-made audit of the whole kernel; useful as a punch list for anyone picking this project back up

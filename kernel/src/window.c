@@ -129,7 +129,7 @@ void window_set_title(int win_index, const char *title) {
 }
 
 int window_add_button(int win_index, int64_t x, int64_t y, uint64_t w, uint64_t h,
-                       uint32_t color, button_callback_t on_click) {
+                       uint32_t color, const char *label, button_callback_t on_click) {
     if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
         return -1;
     }
@@ -141,6 +141,11 @@ int window_add_button(int win_index, int64_t x, int64_t y, uint64_t w, uint64_t 
             windows[win_index].buttons[i].h = h;
             windows[win_index].buttons[i].color = color;
             windows[win_index].buttons[i].on_click = on_click;
+            int j = 0;
+            for (; j < BUTTON_LABEL_MAX - 1 && label && label[j]; j++) {
+                windows[win_index].buttons[i].label[j] = label[j];
+            }
+            windows[win_index].buttons[i].label[j] = '\0';
             windows[win_index].buttons[i].in_use = 1;
             return i;
         }
@@ -344,6 +349,11 @@ static void draw_window(struct window *win) {
         int64_t by = win->y + WINDOW_TITLEBAR_HEIGHT + b->y;
         fb_draw_rect(bx, by, b->w, b->h, b->color);
         fb_draw_rect_outline(bx, by, b->w, b->h, fb_make_color(0, 0, 0), 1);
+        if (b->label[0]) {
+            fb_draw_string_clipped(bx + 4, by + ((int64_t)b->h - FONT_HEIGHT) / 2, b->label,
+                                    fb_make_color(0, 0, 0), b->color,
+                                    bx, by, b->w, b->h);
+        }
     }
 
     if (win->has_textbox) {

@@ -503,7 +503,7 @@ void _start(void) {
     int win_a = window_create(150, 150, 300, 200, fb_make_color(70, 70, 200), fb_make_color(30, 30, 60), "Window A");
     int win_b = window_create(400, 250, 280, 180, fb_make_color(200, 70, 70), fb_make_color(60, 30, 30), "Window B");
     int win_c = window_create(280, 350, 260, 160, fb_make_color(70, 200, 120), fb_make_color(30, 60, 40), "Text Editor");
-    window_add_button(win_a, 20, 20, 120, 30, fb_make_color(80, 200, 80), on_test_button_click);
+    window_add_button(win_a, 20, 20, 120, 30, fb_make_color(80, 200, 80), "Click Me", on_test_button_click);
     window_enable_textbox(win_c);
     serial_write_string("Window system initialized: window_a=");
     serial_write_uint((uint64_t)win_a);
@@ -546,7 +546,22 @@ void _start(void) {
     }
 #endif
 
-    for (int frame = 0; frame < 500; frame++) {
+    /* Printed here, before the desktop loop below, rather than after it:
+     * every prior phase's headless regression-check scripts grep serial
+     * output for this exact line to confirm boot reached the desktop
+     * without crashing. It used to be printed after a bounded (frame < N)
+     * test loop that existed only so headless screendump scripts had a
+     * finite window to run monitor commands in - but that same bound also
+     * meant the "real" interactive OS (booted via -display cocoa for
+     * actual use, not headless testing) would silently hlt forever once
+     * the loop ran out, which looked exactly like a hang after ~25
+     * seconds of otherwise-normal use. The desktop loop below now runs
+     * forever, as a real OS's event loop should; this line still prints
+     * at the same point in boot (right before the desktop becomes
+     * interactive) so existing regression-check commands keep working. */
+    serial_write_string("=== gOS boot checks complete ===\n");
+
+    for (;;) {
         window_system_update();
         taskbar_update();
         desktop_update();
@@ -556,9 +571,4 @@ void _start(void) {
         fb_flip();
         sleep_ms(50);
     }
-    serial_write_string("Window system test loop complete\n");
-
-    serial_write_string("=== gOS boot checks complete ===\n");
-
-    hcf();
 }

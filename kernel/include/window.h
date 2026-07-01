@@ -10,6 +10,7 @@
 #define TEXTBOX_BUFFER_SIZE 512
 #define WINDOW_CLOSE_BUTTON_SIZE 16
 #define WINDOW_CLOSE_BUTTON_MARGIN 4
+#define BUTTON_LABEL_MAX 16
 
 typedef void (*button_callback_t)(void);
 
@@ -18,6 +19,7 @@ struct button {
     uint64_t w, h;
     uint32_t color;
     button_callback_t on_click;
+    char label[BUTTON_LABEL_MAX];
     int in_use;
 };
 
@@ -67,7 +69,7 @@ int window_create(int64_t x, int64_t y, uint64_t w, uint64_t h,
                    uint32_t titlebar_color, uint32_t body_color, const char *title);
 
 int window_add_button(int win_index, int64_t x, int64_t y, uint64_t w, uint64_t h,
-                       uint32_t color, button_callback_t on_click);
+                       uint32_t color, const char *label, button_callback_t on_click);
 
 /* Opts a window into receiving keyboard input (via kb_getchar()) whenever
  * it is the frontmost (focused) window. Only one text box per window is

@@ -258,8 +258,8 @@ static void fm_open_dialog(enum fm_dialog_mode mode, const char *prompt, const c
     fm_dialog_win = window_create(dx, dy, 300, 110, fb_make_color(150, 130, 60),
                                    fb_make_color(45, 40, 25), "Prompt");
     window_enable_textbox(fm_dialog_win);
-    window_add_button(fm_dialog_win, 10, 60, 100, 26, fb_make_color(100, 170, 100), fm_dialog_confirm_click);
-    window_add_button(fm_dialog_win, 130, 60, 100, 26, fb_make_color(190, 90, 90), fm_dialog_cancel_click);
+    window_add_button(fm_dialog_win, 10, 60, 100, 26, fb_make_color(100, 170, 100), "OK", fm_dialog_confirm_click);
+    window_add_button(fm_dialog_win, 130, 60, 100, 26, fb_make_color(190, 90, 90), "Cancel", fm_dialog_cancel_click);
     window_set_render_callback(fm_dialog_win, fm_dialog_render);
 
     fm_dialog_mode = mode;
@@ -417,15 +417,15 @@ int fm_create_window(int64_t x, int64_t y, uint64_t w, uint64_t h) {
 
     int64_t bx = 4;
     const int64_t by = 4, bh = 22, gap = 4;
-    window_add_button(win, bx, by, 50, bh, fb_make_color(120, 120, 200), fm_on_up_click);
+    window_add_button(win, bx, by, 50, bh, fb_make_color(120, 120, 200), "Up", fm_on_up_click);
     bx += 50 + gap;
-    window_add_button(win, bx, by, 90, bh, fb_make_color(100, 170, 100), fm_on_new_folder_click);
+    window_add_button(win, bx, by, 90, bh, fb_make_color(100, 170, 100), "New Folder", fm_on_new_folder_click);
     bx += 90 + gap;
-    window_add_button(win, bx, by, 80, bh, fb_make_color(100, 170, 100), fm_on_new_file_click);
+    window_add_button(win, bx, by, 80, bh, fb_make_color(100, 170, 100), "New File", fm_on_new_file_click);
     bx += 80 + gap;
-    window_add_button(win, bx, by, 70, bh, fb_make_color(190, 90, 90), fm_on_delete_click);
+    window_add_button(win, bx, by, 70, bh, fb_make_color(190, 90, 90), "Delete", fm_on_delete_click);
     bx += 70 + gap;
-    window_add_button(win, bx, by, 80, bh, fb_make_color(170, 150, 90), fm_on_rename_click);
+    window_add_button(win, bx, by, 80, bh, fb_make_color(170, 150, 90), "Rename", fm_on_rename_click);
 
     window_set_render_callback(win, fm_render);
     window_set_click_callback(win, fm_click);
