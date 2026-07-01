@@ -15,6 +15,7 @@
 #include <font.h>
 #include <ata.h>
 #include <fat32.h>
+#include <fm.h>
 
 extern uint8_t __kernel_virt_start[];
 extern uint8_t __kernel_virt_end[];
@@ -470,7 +471,16 @@ void _start(void) {
     serial_write_uint((uint64_t)win_c);
     serial_write_string(" (1 button on window_a)\n");
 
-    for (int frame = 0; frame < 200; frame++) {
+    /* Phase 9: File Manager window, backed by the real FAT32 driver from
+     * Phase 8. Placed as a fourth window in the same z-ordered system as
+     * A/B/C above - proves the file manager is a normal window, not a
+     * special-cased overlay. */
+    int win_fm = fm_create_window(120, 60, 420, 260);
+    serial_write_string("File Manager window created: window_fm=");
+    serial_write_uint((uint64_t)win_fm);
+    serial_write_string("\n");
+
+    for (int frame = 0; frame < 300; frame++) {
         fb_clear(fb_make_color(15, 15, 15));
         window_system_update();
         window_composite();

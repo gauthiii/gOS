@@ -57,6 +57,9 @@ int window_create(int64_t x, int64_t y, uint64_t w, uint64_t h,
     windows[idx].has_textbox = 0;
     windows[idx].textbox_length = 0;
     windows[idx].textbox_buffer[0] = '\0';
+    windows[idx].custom_render = 0;
+    windows[idx].custom_click = 0;
+    windows[idx].user_data = 0;
 
     z_order[window_count] = idx;
     window_count++;
@@ -69,6 +72,34 @@ void window_enable_textbox(int win_index) {
         return;
     }
     windows[win_index].has_textbox = 1;
+}
+
+void window_set_render_callback(int win_index, window_render_callback_t cb) {
+    if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
+        return;
+    }
+    windows[win_index].custom_render = cb;
+}
+
+void window_set_click_callback(int win_index, window_click_callback_t cb) {
+    if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
+        return;
+    }
+    windows[win_index].custom_click = cb;
+}
+
+void window_set_user_data(int win_index, void *data) {
+    if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
+        return;
+    }
+    windows[win_index].user_data = data;
+}
+
+void *window_get_user_data(int win_index) {
+    if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
+        return 0;
+    }
+    return windows[win_index].user_data;
 }
 
 int window_add_button(int win_index, int64_t x, int64_t y, uint64_t w, uint64_t h,
@@ -141,16 +172,21 @@ void window_system_update(void) {
                 drag_offset_x = mx - win->x;
                 drag_offset_y = my - win->y;
             } else {
-                /* Click landed in the body - check buttons. */
+                /* Click landed in the body - check buttons first. */
                 int64_t local_x = mx - win->x;
                 int64_t local_y = my - (win->y + WINDOW_TITLEBAR_HEIGHT);
+                int hit_button = 0;
                 for (int i = 0; i < MAX_WIDGETS_PER_WINDOW; i++) {
                     struct button *b = &win->buttons[i];
                     if (b->in_use && point_in_rect(local_x, local_y, b->x, b->y, b->w, b->h)) {
+                        hit_button = 1;
                         if (b->on_click) {
                             b->on_click();
                         }
                     }
+                }
+                if (!hit_button && win->custom_click) {
+                    win->custom_click(win, local_x, local_y);
                 }
             }
         }
@@ -238,6 +274,10 @@ static void draw_window(struct window *win) {
         fb_draw_string_clipped(body_x + 4, body_y + 4, display,
                                 fb_make_color(255, 255, 255), win->body_color,
                                 body_x, body_y, win->w, win->h);
+    }
+
+    if (win->custom_render) {
+        win->custom_render(win);
     }
 }
 

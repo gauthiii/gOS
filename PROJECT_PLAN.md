@@ -1,6 +1,6 @@
 # gOS — Gauthiii's Operating System — Project Plan
 
-**Last updated:** 2026-07-01 (Phase 0 completed — see [phase0.md](phase0.md); Phase 1 completed — see [phase1.md](phase1.md); Phase 2 completed — see [phase2.md](phase2.md); Phase 3 completed — see [phase3.md](phase3.md); Phase 4 completed — see [phase4.md](phase4.md); Phase 5 completed — see [phase5.md](phase5.md); Phase 6 completed — see [phase6.md](phase6.md); Phase 7 completed — see [phase7.md](phase7.md); Phase 8 completed — see [phase8.md](phase8.md))
+**Last updated:** 2026-07-01 (Phase 0 completed — see [phase0.md](phase0.md); Phase 1 completed — see [phase1.md](phase1.md); Phase 2 completed — see [phase2.md](phase2.md); Phase 3 completed — see [phase3.md](phase3.md); Phase 4 completed — see [phase4.md](phase4.md); Phase 5 completed — see [phase5.md](phase5.md); Phase 6 completed — see [phase6.md](phase6.md); Phase 7 completed — see [phase7.md](phase7.md); Phase 8 completed — see [phase8.md](phase8.md); Phase 9 completed — see [phase9.md](phase9.md))
 
 ## 1. Project Overview
 
@@ -258,21 +258,21 @@
 ### Phase 9 — File Manager UI
 **Estimated time: 12–18 hours (~2.5 weeks)**
 
-**Milestone 9.1: File manager window shell**
-- [ ] Create a "File Manager" window using the windowing system (Phase 6) with a toolbar area and a list area
-- [ ] On open, call `fat_list_dir("/")` and render each entry as a row (icon placeholder + filename + type)
-- [ ] Distinguish folders vs files visually (different icon color/shape is enough for v1 — no real icon graphics required)
+**Milestone 9.1: File manager window shell** — ✅ Done (see [phase9.md](phase9.md))
+- [x] Create a "File Manager" window using the windowing system (Phase 6) with a toolbar area and a list area
+- [x] On open, call `fat_list_dir("/")` and render each entry as a row (icon placeholder + filename + type)
+- [x] Distinguish folders vs files visually (different icon color/shape is enough for v1 — no real icon graphics required)
 
-**Milestone 9.2: Navigation**
-- [ ] Implement click-to-open on a folder row: update current path, re-list, re-render
-- [ ] Implement an "Up/Back" button that navigates to the parent directory
-- [ ] Implement a path breadcrumb or text label showing current directory
-- [ ] Test: navigate 3+ levels deep into a nested folder structure and back out correctly
+**Milestone 9.2: Navigation** — ✅ Done (see [phase9.md](phase9.md))
+- [x] Implement click-to-open on a folder row: update current path, re-list, re-render
+- [x] Implement an "Up/Back" button that navigates to the parent directory
+- [x] Implement a path breadcrumb or text label showing current directory
+- [x] Test: navigate 3+ levels deep into a nested folder structure and back out correctly
 
-**Milestone 9.3: Selection and context actions**
-- [ ] Implement single-item selection (highlight on click)
-- [ ] Add toolbar buttons: "New Folder", "New File", "Delete", "Rename" (wired to Phase 10 logic)
-- [ ] Test: buttons are clickable and dispatch to (initially stubbed) handler functions logged over serial
+**Milestone 9.3: Selection and context actions** — ✅ Done (see [phase9.md](phase9.md))
+- [x] Implement single-item selection (highlight on click)
+- [x] Add toolbar buttons: "New Folder", "New File", "Delete", "Rename" (wired to Phase 10 logic)
+- [x] Test: buttons are clickable and dispatch to (initially stubbed) handler functions logged over serial
 
 ---
 
@@ -443,16 +443,16 @@ This assumes steady 5–10 hr/week pace with no major multi-week stalls. Phases 
 | 8 | 8.3 FAT32 write support | Implement fat_delete_file | Done | Frees the full cluster chain, marks the directory entry `0xE5`. |
 | 8 | 8.3 FAT32 write support | Implement fat_create_dir/fat_delete_dir | Done | Create writes proper `.`/`..` entries; delete refuses non-empty directories (only `.`/`..` may remain). |
 | 8 | 8.3 FAT32 write support | Test create/write/reboot/read persistence | Done | Verified live across two separate QEMU boots against the same disk image (create→write→read, then reboot→confirm "already exists"→read same content), plus independent host-side `mtools` verification of on-disk integrity (no corruption to unrelated files/directories). Tested against a disposable scratch copy first, per the plan's own risk guidance. |
-| 9 | 9.1 File manager shell | Create File Manager window | Not Started | |
-| 9 | 9.1 File manager shell | List root dir entries as rows | Not Started | |
-| 9 | 9.1 File manager shell | Distinguish folders vs files visually | Not Started | |
-| 9 | 9.2 Navigation | Click-to-open folder | Not Started | |
-| 9 | 9.2 Navigation | Up/Back button | Not Started | |
-| 9 | 9.2 Navigation | Path breadcrumb/label | Not Started | |
-| 9 | 9.2 Navigation | Test deep nested navigation | Not Started | |
-| 9 | 9.3 Selection and actions | Single-item selection highlight | Not Started | |
-| 9 | 9.3 Selection and actions | Toolbar buttons (stubbed) | Not Started | |
-| 9 | 9.3 Selection and actions | Test button dispatch logging | Not Started | |
+| 9 | 9.1 File manager shell | Create File Manager window | Done | `kernel/src/fm.c` — `fm_create_window()` builds on Phase 6's `window_create`/`window_add_button`; added generic `window_set_render_callback`/`window_set_click_callback` hooks to `window.c` to support a custom row-list body. |
+| 9 | 9.1 File manager shell | List root dir entries as rows | Done | `fm_refresh()` calls `fat_list_dir(fat32_root_cluster(), ...)`; verified live matches `mdir` output exactly (4 root entries). |
+| 9 | 9.1 File manager shell | Distinguish folders vs files visually | Done | Amber icon square for directories, gray for files; verified visually via screendump (`screenshots/phase9_fm_01_root.png`). |
+| 9 | 9.2 Navigation | Click-to-open folder | Done | Single click (per plan wording) on a directory row calls `fm_navigate_into()`; verified live descending `LEVEL1` → `LEVEL2` → `LEVEL3`. |
+| 9 | 9.2 Navigation | Up/Back button | Done | `fm_navigate_up()` pops an explicit cluster stack (not `..` parsing, since root has no dot entries); verified live returning from depth 3 to root in 3 clicks. |
+| 9 | 9.2 Navigation | Path breadcrumb/label | Done | `fm_path_display` rendered below the toolbar; verified visually reads exactly `/LEVEL1/LEVEL2/LEVEL3` at max test depth. |
+| 9 | 9.2 Navigation | Test deep nested navigation | Done | Added a fresh 3-level `LEVEL1/LEVEL2/LEVEL3/DEEP.TXT` tree via host `mtools` (existing disk only had 1 level from Phase 8); verified live via serial log and independently cross-checked against `mdir`. Real bug found+fixed in the *test harness* timing (not gOS code) — see phase9.md. |
+| 9 | 9.3 Selection and actions | Single-item selection highlight | Done | Clicking a file row highlights it blue; verified visually (`screenshots/phase9_fm_07_hostfile_selected.png`), only one row highlighted at a time. |
+| 9 | 9.3 Selection and actions | Toolbar buttons (stubbed) | Done | Up/New Folder/New File/Delete/Rename all wired via `window_add_button`; `MAX_WIDGETS_PER_WINDOW` raised 4→8 to fit all five. |
+| 9 | 9.3 Selection and actions | Test button dispatch logging | Done | All five buttons verified live via serial log; disk MD5 checksum confirmed byte-identical before/after New Folder/New File/Delete clicks (stubs don't touch the filesystem yet). |
 | 10 | 10.1 Create | Wire New Folder button | Not Started | |
 | 10 | 10.1 Create | Wire New File button | Not Started | |
 | 10 | 10.1 Create | Test create persists after reboot | Not Started | |
