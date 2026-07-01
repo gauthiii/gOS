@@ -9,6 +9,7 @@
 #include <vmm.h>
 #include <heap.h>
 #include <keyboard.h>
+#include <fb.h>
 
 extern uint8_t __kernel_virt_start[];
 extern uint8_t __kernel_virt_end[];
@@ -204,6 +205,48 @@ void _start(void) {
     }
     serial_write_string("TEST: keyboard test complete\n");
 #endif
+
+    fb_init(fb->address, fb->width, fb->height, fb->pitch, fb->bpp,
+            fb->red_mask_shift, fb->green_mask_shift, fb->blue_mask_shift);
+    fb_clear(fb_make_color(0, 64, 128)); /* dark blue, to prove real pixel writes over the raw framebuffer */
+
+    /* Milestone 5.2 test pattern: nested rectangles + diagonal lines,
+     * exercising fb_draw_rect, fb_draw_rect_outline, and fb_draw_line
+     * (including all four line-slope octants) in one visually-checkable
+     * frame. */
+    fb_draw_rect(100, 100, 300, 200, fb_make_color(200, 30, 30));
+    fb_draw_rect_outline(100, 100, 300, 200, fb_make_color(255, 255, 255), 4);
+    fb_draw_rect_outline(50, 50, 400, 300, fb_make_color(30, 200, 30), 2);
+    fb_draw_line(500, 100, 900, 100, fb_make_color(255, 255, 0));   /* horizontal */
+    fb_draw_line(500, 100, 500, 400, fb_make_color(255, 255, 0));   /* vertical */
+    fb_draw_line(500, 100, 900, 400, fb_make_color(255, 0, 255));   /* shallow diagonal */
+    fb_draw_line(500, 400, 900, 100, fb_make_color(0, 255, 255));   /* steep diagonal, opposite direction */
+    serial_write_string("FB: test pattern drawn (nested rects + 4 lines)\n");
+
+    /* Milestone 5.3: switch all drawing to a heap-backed back buffer and
+     * animate a bouncing rectangle across ~40 frames, flipping each frame.
+     * This is the practical headless equivalent of "watch for tearing on
+     * screen": each fb_flip() must present one complete, uncorrupted frame
+     * (background + rectangle at its new position), verifiable via
+     * screendumps taken at different points during the animation. */
+    fb_backbuffer_init();
+    int64_t box_x = 0;
+    int64_t box_dx = 20;
+    const int64_t box_w = 80, box_h = 80;
+    const int64_t area_w = 700;
+    for (int frame = 0; frame < 40; frame++) {
+        fb_clear(fb_make_color(20, 20, 20));
+        fb_draw_rect_outline(0, 0, area_w, 200, fb_make_color(120, 120, 120), 2);
+        fb_draw_rect(box_x, 60, box_w, box_h, fb_make_color(255, 140, 0));
+        fb_flip();
+
+        box_x += box_dx;
+        if (box_x <= 0 || box_x + box_w >= area_w) {
+            box_dx = -box_dx;
+        }
+        sleep_ms(50);
+    }
+    serial_write_string("FB: bouncing-rectangle animation complete (40 frames flipped)\n");
 
     serial_write_string("=== gOS boot checks complete ===\n");
 

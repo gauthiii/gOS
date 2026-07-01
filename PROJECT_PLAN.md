@@ -1,6 +1,6 @@
 # gOS — Gauthiii's Operating System — Project Plan
 
-**Last updated:** 2026-06-30 (Phase 0 completed — see [phase0.md](phase0.md); Phase 1 completed — see [phase1.md](phase1.md); Phase 2 completed — see [phase2.md](phase2.md); Phase 3 completed — see [phase3.md](phase3.md); Phase 4 completed — see [phase4.md](phase4.md))
+**Last updated:** 2026-07-01 (Phase 0 completed — see [phase0.md](phase0.md); Phase 1 completed — see [phase1.md](phase1.md); Phase 2 completed — see [phase2.md](phase2.md); Phase 3 completed — see [phase3.md](phase3.md); Phase 4 completed — see [phase4.md](phase4.md); Phase 5 completed — see [phase5.md](phase5.md))
 
 ## 1. Project Overview
 
@@ -156,22 +156,22 @@
 ### Phase 5 — Framebuffer Graphics
 **Estimated time: 10–14 hours (~2 weeks)**
 
-**Milestone 5.1: Raw pixel plotting works**
-- [ ] Extract framebuffer address, width, height, pitch, bpp from the Limine framebuffer response struct
-- [ ] Implement `fb_put_pixel(x, y, color)` respecting pitch (do not assume pitch == width*4)
-- [ ] Clear the entire screen to a solid color and confirm visually in the QEMU window
+**Milestone 5.1: Raw pixel plotting works** — ✅ Done (see [phase5.md](phase5.md))
+- [x] Extract framebuffer address, width, height, pitch, bpp from the Limine framebuffer response struct
+- [x] Implement `fb_put_pixel(x, y, color)` respecting pitch (do not assume pitch == width*4)
+- [x] Clear the entire screen to a solid color and confirm visually (QEMU `screendump` used in place of an interactive window — see phase5.md)
 
-**Milestone 5.2: Primitive 2D drawing routines**
-- [ ] Implement `fb_draw_rect(x, y, w, h, color)` (filled)
-- [ ] Implement `fb_draw_rect_outline(x, y, w, h, color, thickness)`
-- [ ] Implement `fb_draw_line(x0, y0, x1, y1, color)` (Bresenham's algorithm)
-- [ ] Draw a test pattern (nested rectangles + diagonal lines) at boot to visually confirm all primitives work
+**Milestone 5.2: Primitive 2D drawing routines** — ✅ Done (see [phase5.md](phase5.md))
+- [x] Implement `fb_draw_rect(x, y, w, h, color)` (filled)
+- [x] Implement `fb_draw_rect_outline(x, y, w, h, color, thickness)`
+- [x] Implement `fb_draw_line(x0, y0, x1, y1, color)` (Bresenham's algorithm)
+- [x] Draw a test pattern (nested rectangles + diagonal lines) at boot to visually confirm all primitives work
 
-**Milestone 5.3: Double buffering / flip to avoid tearing**
-- [ ] Allocate a back buffer in kernel heap matching framebuffer dimensions
-- [ ] Redirect all drawing routines to the back buffer
-- [ ] Implement `fb_flip()` (memcpy back buffer → real framebuffer)
-- [ ] Verify no visible tearing/flicker when redrawing rapidly (e.g., an animated bouncing rectangle test)
+**Milestone 5.3: Double buffering / flip to avoid tearing** — ✅ Done (see [phase5.md](phase5.md))
+- [x] Allocate a back buffer in kernel heap matching framebuffer dimensions
+- [x] Redirect all drawing routines to the back buffer
+- [x] Implement `fb_flip()` (memcpy back buffer → real framebuffer)
+- [x] Verify no visible tearing/flicker when redrawing rapidly (e.g., an animated bouncing rectangle test)
 
 ---
 
@@ -394,17 +394,17 @@ This assumes steady 5–10 hr/week pace with no major multi-week stalls. Phases 
 | 4 | 4.2 PS/2 keyboard driver | Scancode-to-ASCII translation table | Done | US QWERTY scancode-set-1 tables (unshifted + shifted), shift key state tracking (make/break), caps lock toggle (inverts shift for letters only, per real keyboard behavior). |
 | 4 | 4.2 PS/2 keyboard driver | Ring buffer + kb_getchar() | Done | 256-byte ring buffer, `kb_getchar()` blocks via `hlt` loop until a character is available; `kb_has_char()` added for future non-blocking use (Phase 7). |
 | 4 | 4.2 PS/2 keyboard driver | Test typing, echo over serial | Done | Headless equivalent of "type on the QEMU window": used QEMU monitor `sendkey` to simulate keystrokes (g, shift-o, 1, ret, shift-a — then h, shift-i, 9, ret, z on a second run), verified live via serial log that every character was translated correctly (lowercase, shifted-uppercase, digit, enter, all exact matches). |
-| 5 | 5.1 Raw pixel plotting | Extract framebuffer info from Limine | Not Started | |
-| 5 | 5.1 Raw pixel plotting | Implement fb_put_pixel | Not Started | |
-| 5 | 5.1 Raw pixel plotting | Clear screen to solid color | Not Started | |
-| 5 | 5.2 Primitive 2D drawing | Implement fb_draw_rect (filled) | Not Started | |
-| 5 | 5.2 Primitive 2D drawing | Implement fb_draw_rect_outline | Not Started | |
-| 5 | 5.2 Primitive 2D drawing | Implement fb_draw_line (Bresenham) | Not Started | |
-| 5 | 5.2 Primitive 2D drawing | Draw test pattern | Not Started | |
-| 5 | 5.3 Double buffering | Allocate back buffer | Not Started | |
-| 5 | 5.3 Double buffering | Redirect drawing to back buffer | Not Started | |
-| 5 | 5.3 Double buffering | Implement fb_flip | Not Started | |
-| 5 | 5.3 Double buffering | Verify no tearing with animation test | Not Started | |
+| 5 | 5.1 Raw pixel plotting | Extract framebuffer info from Limine | Done | Already retrieved in Phase 1 (`fb` struct); Phase 5 additionally passes channel shifts into `fb_init()` for correct color packing. |
+| 5 | 5.1 Raw pixel plotting | Implement fb_put_pixel | Done | `kernel/src/fb.c` — respects real pitch (`y*pitch + x*bpp/8`), not an assumed `width*4`. |
+| 5 | 5.1 Raw pixel plotting | Clear screen to solid color | Done | Verified via QEMU `screendump` (headless equivalent of visual confirmation — no interactive window in this environment): sampled pixels read back exactly `RGB(0,64,128)`, matching the requested color exactly, confirming correct channel packing. |
+| 5 | 5.2 Primitive 2D drawing | Implement fb_draw_rect (filled) | Done | Clipped to framebuffer bounds. |
+| 5 | 5.2 Primitive 2D drawing | Implement fb_draw_rect_outline | Done | Built from 4 calls to `fb_draw_rect` (top/bottom/left/right bands). |
+| 5 | 5.2 Primitive 2D drawing | Implement fb_draw_line (Bresenham) | Done | Handles all slope octants via the standard signed-error Bresenham formulation. |
+| 5 | 5.2 Primitive 2D drawing | Draw test pattern | Done | Nested rects + 4 lines (horizontal, vertical, both diagonals) drawn at boot; screendump visually confirmed correct via direct image inspection — filled rect with outline, second outline, and an X-crossing of 4 correctly-colored, correctly-angled lines. |
+| 5 | 5.3 Double buffering | Allocate back buffer | Done | `fb_backbuffer_init()` — 4000 KiB (`pitch * height`), allocated via Phase 3's `kmalloc`. |
+| 5 | 5.3 Double buffering | Redirect drawing to back buffer | Done | All draw calls write through a `draw_target` pointer that switches from the real framebuffer to the back buffer once initialized — no call-site changes needed anywhere else in the kernel. |
+| 5 | 5.3 Double buffering | Implement fb_flip | Done | Bulk 8-byte-word copy from back buffer to real framebuffer. |
+| 5 | 5.3 Double buffering | Verify no tearing with animation test | Done | 40-frame bouncing-rectangle animation (`sleep_ms(50)` between frames); 3 screendumps taken at different points during the animation each show a single complete, uncorrupted frame with the rectangle at a different, correctly-interpolated position — no ghosting, no partial-frame artifacts. |
 | 6 | 6.1 Mouse input | Enable PS/2 aux port + IRQ12 | Not Started | |
 | 6 | 6.1 Mouse input | Parse 3-byte mouse packets | Not Started | |
 | 6 | 6.1 Mouse input | Track/draw cursor | Not Started | |
