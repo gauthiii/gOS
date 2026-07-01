@@ -1,6 +1,6 @@
 # gOS — Gauthiii's Operating System — Project Plan
 
-**Last updated:** 2026-07-01 (Phase 0 completed — see [phase0.md](phase0.md); Phase 1 completed — see [phase1.md](phase1.md); Phase 2 completed — see [phase2.md](phase2.md); Phase 3 completed — see [phase3.md](phase3.md); Phase 4 completed — see [phase4.md](phase4.md); Phase 5 completed — see [phase5.md](phase5.md); Phase 6 completed — see [phase6.md](phase6.md); Phase 7 completed — see [phase7.md](phase7.md); Phase 8 completed — see [phase8.md](phase8.md); Phase 9 completed — see [phase9.md](phase9.md); Phase 10 completed — see [phase10.md](phase10.md); Phase 11 completed — see [phase11.md](phase11.md) — **v1.0 reached**)
+**Last updated:** 2026-07-01 (Phase 0 completed — see [phase0.md](phase0.md); Phase 1 completed — see [phase1.md](phase1.md); Phase 2 completed — see [phase2.md](phase2.md); Phase 3 completed — see [phase3.md](phase3.md); Phase 4 completed — see [phase4.md](phase4.md); Phase 5 completed — see [phase5.md](phase5.md); Phase 6 completed — see [phase6.md](phase6.md); Phase 7 completed — see [phase7.md](phase7.md); Phase 8 completed — see [phase8.md](phase8.md); Phase 9 completed — see [phase9.md](phase9.md); Phase 10 completed — see [phase10.md](phase10.md); Phase 11 completed — see [phase11.md](phase11.md) — **v1.0 reached**; post-v1.0 patch completed — see [phase-patch.md](phase-patch.md) and [audit.md](audit.md))
 
 ## 1. Project Overview
 
@@ -323,6 +323,23 @@
 
 ---
 
+### Post-v1.0 Patch — Stability & UX fixes
+**Not a numbered phase — see [phase-patch.md](phase-patch.md) and [audit.md](audit.md)**
+
+**Read-only flaw audit** — ✅ Done (see [audit.md](audit.md))
+- [x] Full read-only review of the kernel (memory/interrupts, drivers/FAT32, windowing/UI/rendering, boot sequence/build config) — 24 ranked findings, no code changed
+
+**Fix: desktop hang after ~25 seconds** — ✅ Done (see [phase-patch.md](phase-patch.md))
+- [x] Diagnosed a user-reported hang during interactive use (dragging/opening/closing windows) to a bounded `for (frame < 500)` main loop left over from headless test scripts, falling into a permanent `hcf()` halt
+- [x] Converted the loop to run forever; moved the `"boot checks complete"` log line before it so existing headless regression checks still pass
+- [x] Verified live via screendump ~48 seconds into a real interactive session (well past the old cutoff)
+
+**Fix: unlabeled buttons** — ✅ Done (see [phase-patch.md](phase-patch.md))
+- [x] Added a label field to `struct button` and rendered it on every button (File Manager toolbar, modal dialog Confirm/Cancel, Window A's demo button)
+- [x] Verified visually via screendump
+
+---
+
 ## 5. Estimated Time Summary (at 7.5 hrs/week)
 
 | Phase | Hours | Weeks |
@@ -474,6 +491,9 @@ This assumes steady 5–10 hr/week pace with no major multi-week stalls. Phases 
 | 11 | 11.3 Docs and demo | Write README | Done | Updated for Phase 11 (desktop/taskbar/panic screen/CRUD) with new screenshots. |
 | 11 | 11.3 Docs and demo | Record demo capture | Done | `screenshots/phase11_demo.gif` - animated GIF assembled via `ffmpeg` from real QEMU screendumps spanning boot → desktop → File Manager launch → full CRUD → window close/taskbar focus. |
 | 11 | 11.3 Docs and demo | Tag v1.0 release | Done | `git tag -a v1.0` created locally (not pushed), per explicit user approval, once all milestones were verified. |
+| Patch | Audit | Read-only kernel flaw audit | Done | `audit.md` - 24 ranked findings across memory/interrupts, drivers/FAT32, windowing/UI, boot sequence; no code changed (explicit read-only request). |
+| Patch | Fix | Desktop hang after ~25s | Done | Root cause: `start.c`'s main loop was bounded (`frame < 500`, 500x50ms) then fell into permanent `hcf()` - a leftover from headless test scripts, not a real OS event loop. Changed to `for (;;)`; moved the `"boot checks complete"` log line before the loop so existing regression checks still pass. Verified live ~48s into a real session. |
+| Patch | Fix | Unlabeled buttons | Done | Added a `label` field to `struct button`; all 8 existing buttons (File Manager toolbar, modal dialog, Window A demo button) now show readable text. Verified visually via screendump. |
 
 ---
 
