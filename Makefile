@@ -18,7 +18,7 @@ CFLAGS := -g -O0 -Wall -Wextra \
           -ffreestanding -fno-stack-protector -fno-stack-check \
           -fno-pic -fno-pie -m64 -march=x86-64 -mno-80387 -mno-mmx \
           -mno-sse -mno-sse2 -mno-red-zone -mcmodel=kernel \
-          -std=gnu11 -I $(KERNEL_DIR)/include
+          -std=gnu11 -I $(KERNEL_DIR)/include -I $(LIMINE_DIR)
 
 LDFLAGS := -T $(KERNEL_DIR)/linker.ld -nostdlib -static \
            -z max-page-size=0x1000 -no-pie
@@ -49,7 +49,7 @@ $(KERNEL_ELF): $(OBJS) $(KERNEL_DIR)/linker.ld
 iso: build
 	@mkdir -p $(ISO_DIR)/boot/limine $(ISO_DIR)/EFI/BOOT
 	cp $(KERNEL_ELF) $(ISO_DIR)/boot/gos.elf
-	cp boot/limine.cfg $(ISO_DIR)/boot/limine/limine.cfg
+	cp boot/limine.conf $(ISO_DIR)/boot/limine.conf
 	cp $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin \
 	   $(LIMINE_DIR)/limine-uefi-cd.bin $(ISO_DIR)/boot/limine/
 	cp $(LIMINE_DIR)/BOOTX64.EFI $(ISO_DIR)/EFI/BOOT/

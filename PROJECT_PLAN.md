@@ -1,6 +1,6 @@
 # gOS — Gauthiii's Operating System — Project Plan
 
-**Last updated:** 2026-06-30 (Phase 0 completed — see [phase0.md](phase0.md))
+**Last updated:** 2026-06-30 (Phase 0 completed — see [phase0.md](phase0.md); Phase 1 completed — see [phase1.md](phase1.md))
 
 ## 1. Project Overview
 
@@ -70,17 +70,17 @@
 ### Phase 1 — Bootloader & Boot Process
 **Estimated time: 8–12 hours (~1–1.5 weeks)**
 
-**Milestone 1.1: Kernel is loaded and entered by Limine**
-- [ ] Write `limine.cfg` describing the kernel entry and protocol version
-- [ ] Write kernel entry point (`_start`) that receives the Limine boot info structure
-- [ ] Package kernel + Limine into a bootable ISO with `xorriso`
-- [ ] Boot the ISO in QEMU with OVMF and confirm the kernel entry point is reached (verify via QEMU's `-d int` trap log or a simple infinite `hlt` loop you can see isn't triple-faulting)
+**Milestone 1.1: Kernel is loaded and entered by Limine** — ✅ Done (see [phase1.md](phase1.md))
+- [x] Write `limine.conf` describing the kernel entry and protocol version (note: current Limine v9.x config file is named `limine.conf`, not `limine.cfg` — the plan's original filename was outdated terminology)
+- [x] Write kernel entry point (`_start`) that receives the Limine boot info structure
+- [x] Package kernel + Limine into a bootable ISO with `xorriso`
+- [x] Boot the ISO in QEMU with OVMF and confirm the kernel entry point is reached (verified via QEMU monitor `info registers`: RIP parked inside the kernel's `hlt` loop at a higher-half address, HLT=1, no triple fault)
 
-**Milestone 1.2: Kernel proves it's alive via serial output**
-- [ ] Write a minimal serial (COM1/UART 16550) driver: `outb`/`inb` wrappers in C (inline asm) or ASM stubs
-- [ ] Implement `serial_write_char` / `serial_write_string`
-- [ ] Print a boot banner ("gOS booting...") over serial, visible via QEMU's `-serial stdio`
-- [ ] Confirm Limine memory map and framebuffer info structs are non-null and print their key fields (address, size, pitch, bpp) over serial
+**Milestone 1.2: Kernel proves it's alive via serial output** — ✅ Done (see [phase1.md](phase1.md))
+- [x] Write a minimal serial (COM1/UART 16550) driver: `outb`/`inb` wrappers in C (inline asm)
+- [x] Implement `serial_write_char` / `serial_write_string`
+- [x] Print a boot banner ("gOS booting...") over serial, visible via QEMU's `-serial stdio`
+- [x] Confirm Limine memory map and framebuffer info structs are non-null and print their key fields (address, size, pitch, bpp) over serial
 
 **Dependency note:** Nothing in Phase 2+ can be tested without Milestone 1.2's serial output — it is your only debugging channel until the framebuffer (Phase 5) is working. Do not skip it.
 
@@ -358,14 +358,14 @@ This assumes steady 5–10 hr/week pace with no major multi-week stalls. Phases 
 | 0 | 0.2 Repo skeleton | Write top-level Makefile | Done | `Makefile` at repo root with `build`, `iso`, `run`, `debug`, `clean` targets. `iso`/`run` targets reference `boot/limine.cfg` and kernel sources that don't exist until Phase 1 — expected, not yet runnable end-to-end. |
 | 0 | 0.2 Repo skeleton | Vendor Limine | Done | Added as git submodule `third_party/limine`, branch `v9.x-binary`, resolved to tag `v9.6.7-binary`. Host deploy tool built successfully (`make` inside submodule produced `limine` binary). |
 | 0 | 0.2 Repo skeleton | Write linker script | Done | `kernel/linker.ld` — higher-half kernel linked at `0xffffffff80000000`, separate PT_LOAD segments for `.text`/`.rodata`/`.data+.bss`. |
-| 1 | 1.1 Kernel loaded by Limine | Write limine.cfg | Not Started | |
-| 1 | 1.1 Kernel loaded by Limine | Write kernel _start entry | Not Started | |
-| 1 | 1.1 Kernel loaded by Limine | Build bootable ISO | Not Started | |
-| 1 | 1.1 Kernel loaded by Limine | Boot in QEMU, confirm entry reached | Not Started | |
-| 1 | 1.2 Serial output alive | Write serial (UART) driver | Not Started | |
-| 1 | 1.2 Serial output alive | Implement serial_write_char/string | Not Started | |
-| 1 | 1.2 Serial output alive | Print boot banner | Not Started | |
-| 1 | 1.2 Serial output alive | Confirm memory map + framebuffer info | Not Started | |
+| 1 | 1.1 Kernel loaded by Limine | Write limine.conf | Done | Filename corrected from planned `limine.cfg` to `limine.conf` (current Limine v9.x format); placed at `boot/limine.conf`, deployed to `/boot/limine.conf` on the ISO. |
+| 1 | 1.1 Kernel loaded by Limine | Write kernel _start entry | Done | `kernel/src/start.c`; base revision 3 request + start/end markers in a dedicated `.requests` linker segment per Limine protocol. |
+| 1 | 1.1 Kernel loaded by Limine | Build bootable ISO | Done | `make iso` produces `build/gos.iso` (hybrid BIOS+UEFI via xorriso + `limine bios-install`). |
+| 1 | 1.1 Kernel loaded by Limine | Boot in QEMU, confirm entry reached | Done | Verified via QEMU monitor: RIP=0xffffffff80001005 (higher-half), HLT=1, no triple fault/reset. |
+| 1 | 1.2 Serial output alive | Write serial (UART) driver | Done | `kernel/src/serial.c` — COM1 16550 UART via `outb`/`inb` inline asm, 38400 baud, FIFO enabled. |
+| 1 | 1.2 Serial output alive | Implement serial_write_char/string | Done | Plus `serial_write_hex64`/`serial_write_uint` helpers added for memmap/framebuffer dumping. |
+| 1 | 1.2 Serial output alive | Print boot banner | Done | "=== gOS booting... ===" visible over `-serial stdio` in QEMU. |
+| 1 | 1.2 Serial output alive | Confirm memory map + framebuffer info | Done | Verified live: 36 memmap entries, 207 MiB usable RAM, framebuffer 1280x800x32bpp at 0xffff800080000000. |
 | 2 | 2.1 Custom GDT loaded | Define GDT descriptors | Not Started | |
 | 2 | 2.1 Custom GDT loaded | Write gdt_load in ASM | Not Started | |
 | 2 | 2.1 Custom GDT loaded | Load GDT, verify segment registers | Not Started | |
