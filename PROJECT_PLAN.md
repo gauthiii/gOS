@@ -1,6 +1,6 @@
 # gOS — Gauthiii's Operating System — Project Plan
 
-**Last updated:** 2026-07-01 (Phase 0 completed — see [phase0.md](phase0.md); Phase 1 completed — see [phase1.md](phase1.md); Phase 2 completed — see [phase2.md](phase2.md); Phase 3 completed — see [phase3.md](phase3.md); Phase 4 completed — see [phase4.md](phase4.md); Phase 5 completed — see [phase5.md](phase5.md); Phase 6 completed — see [phase6.md](phase6.md); Phase 7 completed — see [phase7.md](phase7.md); Phase 8 completed — see [phase8.md](phase8.md); Phase 9 completed — see [phase9.md](phase9.md))
+**Last updated:** 2026-07-01 (Phase 0 completed — see [phase0.md](phase0.md); Phase 1 completed — see [phase1.md](phase1.md); Phase 2 completed — see [phase2.md](phase2.md); Phase 3 completed — see [phase3.md](phase3.md); Phase 4 completed — see [phase4.md](phase4.md); Phase 5 completed — see [phase5.md](phase5.md); Phase 6 completed — see [phase6.md](phase6.md); Phase 7 completed — see [phase7.md](phase7.md); Phase 8 completed — see [phase8.md](phase8.md); Phase 9 completed — see [phase9.md](phase9.md); Phase 10 completed — see [phase10.md](phase10.md))
 
 ## 1. Project Overview
 
@@ -279,25 +279,25 @@
 ### Phase 10 — CRUD Operations
 **Estimated time: 10–16 hours (~2 weeks)**
 
-**Milestone 10.1: Create**
-- [ ] Wire "New Folder" button to `fat_create_dir()` + prompt for a name via a small text input dialog (reuses Phase 7.3 text box)
-- [ ] Wire "New File" button to `fat_create_file()` similarly
-- [ ] Test: create a folder and a file from the UI, confirm they appear in the listing immediately and persist after reboot
+**Milestone 10.1: Create** — ✅ Done (see [phase10.md](phase10.md))
+- [x] Wire "New Folder" button to `fat_create_dir()` + prompt for a name via a small text input dialog (reuses Phase 7.3 text box)
+- [x] Wire "New File" button to `fat_create_file()` similarly
+- [x] Test: create a folder and a file from the UI, confirm they appear in the listing immediately and persist after reboot
 
-**Milestone 10.2: Read (text editor)**
-- [ ] Build a minimal "Text Editor" window: double-clicking a `.txt` file in the file manager opens it
-- [ ] Load file contents via `fat_read_file()` into the text box widget from 7.3
-- [ ] Test: open an existing text file created on the host via `mtools`, confirm its exact contents render correctly
+**Milestone 10.2: Read (text editor)** — ✅ Done (see [phase10.md](phase10.md))
+- [x] Build a minimal "Text Editor" window: double-clicking a `.txt` file in the file manager opens it
+- [x] Load file contents via `fat_read_file()` into the text box widget from 7.3
+- [x] Test: open an existing text file created on the host via `mtools`, confirm its exact contents render correctly
 
-**Milestone 10.3: Update (save)**
-- [ ] Add a "Save" button/keybind (e.g., Ctrl+S) in the text editor that calls `fat_write_file()` with the edited buffer
-- [ ] Handle the case where edited content is larger/smaller than original (cluster chain grows/shrinks correctly — exercises 8.3's extend logic)
-- [ ] Test: edit a file, save, reboot, reopen — confirm changes persisted
+**Milestone 10.3: Update (save)** — ✅ Done (see [phase10.md](phase10.md))
+- [x] Add a "Save" button/keybind (e.g., Ctrl+S) in the text editor that calls `fat_write_file()` with the edited buffer
+- [x] Handle the case where edited content is larger/smaller than original (cluster chain grows/shrinks correctly — exercises 8.3's extend logic)
+- [x] Test: edit a file, save, reboot, reopen — confirm changes persisted
 
-**Milestone 10.4: Delete and Rename**
-- [ ] Wire "Delete" button to `fat_delete_file()`/`fat_delete_dir()` with a confirmation dialog (reuse window/button primitives)
-- [ ] Implement rename: update the directory entry's filename bytes in place (no cluster changes needed)
-- [ ] Test: delete a file, confirm it disappears from listing and from a host-side mount check; rename a file, confirm name change persists
+**Milestone 10.4: Delete and Rename** — ✅ Done (see [phase10.md](phase10.md))
+- [x] Wire "Delete" button to `fat_delete_file()`/`fat_delete_dir()` with a confirmation dialog (reuse window/button primitives)
+- [x] Implement rename: update the directory entry's filename bytes in place (no cluster changes needed)
+- [x] Test: delete a file, confirm it disappears from listing and from a host-side mount check; rename a file, confirm name change persists
 
 **Dependency note:** This entire phase is a thin UI layer over Phase 8's FAT32 read/write logic — if Phase 8 is solid, this phase should be the fastest of the "hard" phases.
 
@@ -453,18 +453,18 @@ This assumes steady 5–10 hr/week pace with no major multi-week stalls. Phases 
 | 9 | 9.3 Selection and actions | Single-item selection highlight | Done | Clicking a file row highlights it blue; verified visually (`screenshots/phase9_fm_07_hostfile_selected.png`), only one row highlighted at a time. |
 | 9 | 9.3 Selection and actions | Toolbar buttons (stubbed) | Done | Up/New Folder/New File/Delete/Rename all wired via `window_add_button`; `MAX_WIDGETS_PER_WINDOW` raised 4→8 to fit all five. |
 | 9 | 9.3 Selection and actions | Test button dispatch logging | Done | All five buttons verified live via serial log; disk MD5 checksum confirmed byte-identical before/after New Folder/New File/Delete clicks (stubs don't touch the filesystem yet). |
-| 10 | 10.1 Create | Wire New Folder button | Not Started | |
-| 10 | 10.1 Create | Wire New File button | Not Started | |
-| 10 | 10.1 Create | Test create persists after reboot | Not Started | |
-| 10 | 10.2 Read (text editor) | Build Text Editor window | Not Started | |
-| 10 | 10.2 Read (text editor) | Load file contents into text box | Not Started | |
-| 10 | 10.2 Read (text editor) | Test open host-created file | Not Started | |
-| 10 | 10.3 Update (save) | Add Save button/keybind | Not Started | |
-| 10 | 10.3 Update (save) | Handle cluster chain grow/shrink | Not Started | |
-| 10 | 10.3 Update (save) | Test edit/save/reboot/reopen | Not Started | |
-| 10 | 10.4 Delete and Rename | Wire Delete button + confirmation | Not Started | |
-| 10 | 10.4 Delete and Rename | Implement rename | Not Started | |
-| 10 | 10.4 Delete and Rename | Test delete + rename persistence | Not Started | |
+| 10 | 10.1 Create | Wire New Folder button | Done | `fm_on_new_folder_click()` opens a reusable modal dialog (`fm_open_dialog`), Confirm calls `fat_create_dir()`; verified live + independently via `mdir`. |
+| 10 | 10.1 Create | Wire New File button | Done | Same dialog mechanism, `fat_create_file()`; verified live + independently via `mdir`. |
+| 10 | 10.1 Create | Test create persists after reboot | Done | Verified together with 10.3's reboot test (same disk image, same reboot-and-reread technique). |
+| 10 | 10.2 Read (text editor) | Build Text Editor window | Done | New `kernel/src/editor.c`/`editor.h`; single reusable window via new `window_focus()`/`window_set_title()`. |
+| 10 | 10.2 Read (text editor) | Load file contents into text box | Done | `editor_open()` calls `fat_read_file()` directly into the window's `textbox_buffer` via new `window_get()` accessor. |
+| 10 | 10.2 Read (text editor) | Test open host-created file | Done | Double-clicked `HOSTFILE.TXT`; verified live (53 bytes, exact text) + visually via screendump. |
+| 10 | 10.3 Update (save) | Add Save button/keybind | Done | Ctrl+S: added Ctrl-key tracking to `keyboard.c` (emits ASCII 0x13), new generic `window_key_callback_t` hook in `window.c` lets `editor_on_key()` intercept it and call `fat_write_file()`. |
+| 10 | 10.3 Update (save) | Handle cluster chain grow/shrink | Done | No new logic needed - reuses Phase 8's `fat_write_file` grow/shrink directly; verified 53→62 byte grow. |
+| 10 | 10.3 Update (save) | Test edit/save/reboot/reopen | Done | Verified live across two separate QEMU boots (62 bytes read back on the second boot) + independently via host `mtype`. |
+| 10 | 10.4 Delete and Rename | Wire Delete button + confirmation | Done | Same reusable dialog, `FM_DIALOG_DELETE_CONFIRM` mode; verified live + independently via `mdir` (deleted `NEWFILE`). |
+| 10 | 10.4 Delete and Rename | Implement rename | Done | New `fat_rename()` in `fat32.c`/`fat32.h`, reusing existing `find_dirent`/`to_83_name` helpers; patches only the 11-byte name field. Real bug found+fixed in dialog rendering (label/textbox overlap) — see phase10.md. |
+| 10 | 10.4 Delete and Rename | Test delete + rename persistence | Done | Verified live + independently via `mdir` (`PERSIST.TXT`→`RENAMED`, same 35-byte size, all other entries untouched). Noted UI limitation: folders can't be selected for Delete/Rename (single click always navigates) — documented, not a bug. |
 | 11 | 11.1 Crash resilience | Null-check audit | Not Started | |
 | 11 | 11.1 Crash resilience | Kernel panic screen | Not Started | |
 | 11 | 11.1 Crash resilience | Stress test create/delete/rename loop | Not Started | |

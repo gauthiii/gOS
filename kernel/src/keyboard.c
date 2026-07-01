@@ -11,7 +11,16 @@
 #define SC_CAPS_LOCK_MAKE   0x3A
 #define SC_BACKSPACE_MAKE   0x0E
 #define SC_ENTER_MAKE       0x1C
+#define SC_LEFT_CTRL_MAKE   0x1D
+#define SC_LEFT_CTRL_BREAK  0x9D
+#define SC_S_SCANCODE       0x1F
 #define SC_BREAK_BIT        0x80
+
+/* Ctrl+S is reported to callers as ASCII DC3 (0x13) - the conventional
+ * "device control 3 / XOFF" control code historically used for Ctrl+S in
+ * terminals - rather than as a plain 's', so window/editor code can tell
+ * "type the letter s" and "save" apart without any extra modifier state. */
+#define KEY_CTRL_S 0x13
 
 static inline uint8_t inb(uint16_t port) {
     uint8_t ret;
@@ -38,6 +47,7 @@ static const char scancode_ascii_shift[128] = {
 
 static volatile int shift_held = 0;
 static volatile int caps_lock_on = 0;
+static volatile int ctrl_held = 0;
 
 #define RING_BUFFER_SIZE 256
 static volatile char ring_buffer[RING_BUFFER_SIZE];
@@ -75,11 +85,17 @@ static void keyboard_irq_handler(struct interrupt_frame *frame) {
         shift_held = 1;
     } else if (sc == SC_LEFT_SHIFT_BREAK || sc == SC_RIGHT_SHIFT_BREAK) {
         shift_held = 0;
+    } else if (sc == SC_LEFT_CTRL_MAKE) {
+        ctrl_held = 1;
+    } else if (sc == SC_LEFT_CTRL_BREAK) {
+        ctrl_held = 0;
     } else if (sc == SC_CAPS_LOCK_MAKE) {
         caps_lock_on = !caps_lock_on;
     } else if (!(sc & SC_BREAK_BIT)) {
         /* Make code (key press) for a non-modifier key. */
-        if (sc < 128) {
+        if (sc == SC_S_SCANCODE && ctrl_held) {
+            ring_push((char)KEY_CTRL_S);
+        } else if (sc < 128) {
             int use_shift = shift_held;
             if (is_letter_scancode(sc) && caps_lock_on) {
                 use_shift = !use_shift; /* caps lock inverts shift for letters only */

@@ -66,4 +66,10 @@ int fat_create_dir(const char *path);
  * found, not a directory, or not empty). */
 int fat_delete_dir(const char *path);
 
+/* Renames a file or directory in place: updates its 8.3 directory-entry
+ * name bytes only (no cluster/data changes). Returns 1 on success, 0 on
+ * failure (source not found, or a `new_name` entry already exists in the
+ * same parent directory). */
+int fat_rename(const char *path, const char *new_name);
+
 #endif

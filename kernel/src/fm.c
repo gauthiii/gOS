@@ -3,12 +3,15 @@
 #include <fb.h>
 #include <font.h>
 #include <serial.h>
+#include <timer.h>
+#include <editor.h>
 
 #define FM_TOOLBAR_HEIGHT 30
 #define FM_PATH_HEIGHT    14
 #define FM_LIST_TOP       (FM_TOOLBAR_HEIGHT + FM_PATH_HEIGHT)
 #define FM_ROW_HEIGHT     16
 #define FM_MAX_DEPTH      16
+#define FM_DOUBLE_CLICK_TICKS 40 /* ~400ms at the Phase 4 100Hz timer rate */
 
 static uint32_t fm_dir_stack[FM_MAX_DEPTH];
 static char fm_name_stack[FM_MAX_DEPTH][FAT32_NAME_MAX];
@@ -24,7 +27,30 @@ static int fm_visible_index[FAT32_MAX_DIRENTS];
 static int fm_visible_count = 0;
 static int fm_selected = -1; /* index into fm_visible_index, or -1 */
 
+static int fm_last_click_row = -1;
+static uint64_t fm_last_click_tick = 0;
+
 static char fm_path_display[256] = "/";
+static int fm_win_index = -1;
+
+/* --- Modal dialog (New Folder / New File / Rename / Delete confirm) ---
+ * A single reusable dialog window: a prompt label (custom-rendered), a
+ * text box (Phase 7.3's widget, ignored in DELETE_CONFIRM mode), and
+ * Confirm/Cancel buttons. Only one can be open at a time - adequate for
+ * a single-window file manager in v1. */
+enum fm_dialog_mode {
+    FM_DIALOG_NONE,
+    FM_DIALOG_NEW_FOLDER,
+    FM_DIALOG_NEW_FILE,
+    FM_DIALOG_RENAME,
+    FM_DIALOG_DELETE_CONFIRM,
+};
+
+static int fm_dialog_win = -1;
+static enum fm_dialog_mode fm_dialog_mode = FM_DIALOG_NONE;
+static char fm_dialog_prompt[64] = "";
+static char fm_dialog_target_name[FAT32_NAME_MAX] = ""; /* entry being renamed/deleted */
+static int fm_dialog_target_is_dir = 0;
 
 static int is_dot_entry(const char *name) {
     return name[0] == '.' && (name[1] == '\0' || (name[1] == '.' && name[2] == '\0'));
@@ -45,6 +71,24 @@ static void fm_rebuild_path_display(void) {
     fm_path_display[pos] = '\0';
 }
 
+/* Builds a FAT32 path (no leading slash, e.g. "LEVEL1/LEVEL2/NAME.TXT")
+ * for `name` inside the currently displayed directory. */
+static void fm_full_path(const char *name, char *out, int out_size) {
+    int pos = 0;
+    if (fm_depth > 0) {
+        /* fm_path_display is "/A/B" - copy everything after the leading
+         * slash, then a separating slash before `name`. */
+        for (int i = 1; fm_path_display[i] && pos < out_size - 2; i++) {
+            out[pos++] = fm_path_display[i];
+        }
+        out[pos++] = '/';
+    }
+    for (int i = 0; name[i] && pos < out_size - 1; i++) {
+        out[pos++] = name[i];
+    }
+    out[pos] = '\0';
+}
+
 static void fm_refresh(void) {
     fm_raw_count = fat_list_dir(fm_current_cluster, fm_raw_entries, FAT32_MAX_DIRENTS);
     fm_visible_count = 0;
@@ -55,6 +99,7 @@ static void fm_refresh(void) {
         fm_visible_index[fm_visible_count++] = i;
     }
     fm_selected = -1;
+    fm_last_click_row = -1;
     fm_rebuild_path_display();
 
     serial_write_string("FM: listed \"");
@@ -99,20 +144,192 @@ static void fm_on_up_click(void) {
     fm_navigate_up();
 }
 
+/* --- Dialog plumbing --- */
+
+static void fm_dialog_render(struct window *win) {
+    int64_t body_x = win->x;
+    int64_t body_y = win->y + WINDOW_TITLEBAR_HEIGHT;
+    /* The generic text-box widget (window.c) always draws its one line of
+     * typed text at body_y+4 - drawing the prompt label *below* that line
+     * instead of above it avoids the two overlapping at the same row. */
+    fb_draw_string_clipped(body_x + 6, body_y + 4 + FONT_HEIGHT + 6, fm_dialog_prompt,
+                            fb_make_color(220, 220, 220), win->body_color,
+                            body_x, body_y, win->w, win->h);
+}
+
+static void fm_close_dialog(void) {
+    if (fm_dialog_win != -1) {
+        window_close(fm_dialog_win);
+    }
+    fm_dialog_win = -1;
+    fm_dialog_mode = FM_DIALOG_NONE;
+}
+
+static void fm_dialog_cancel_click(void) {
+    serial_write_string("FM: dialog cancelled\n");
+    fm_close_dialog();
+}
+
+static void fm_dialog_confirm_click(void) {
+    struct window *dw = window_get(fm_dialog_win);
+    if (!dw) {
+        fm_close_dialog();
+        return;
+    }
+
+    char path[300];
+    switch (fm_dialog_mode) {
+        case FM_DIALOG_NEW_FOLDER:
+            if (dw->textbox_length == 0) {
+                serial_write_string("FM: New Folder cancelled (empty name)\n");
+                break;
+            }
+            fm_full_path(dw->textbox_buffer, path, sizeof(path));
+            serial_write_string("FM: fat_create_dir(\"");
+            serial_write_string(path);
+            serial_write_string("\") = ");
+            serial_write_string(fat_create_dir(path) ? "1 (OK)" : "0 (FAILED)");
+            serial_write_string("\n");
+            fm_refresh();
+            break;
+
+        case FM_DIALOG_NEW_FILE:
+            if (dw->textbox_length == 0) {
+                serial_write_string("FM: New File cancelled (empty name)\n");
+                break;
+            }
+            fm_full_path(dw->textbox_buffer, path, sizeof(path));
+            serial_write_string("FM: fat_create_file(\"");
+            serial_write_string(path);
+            serial_write_string("\") = ");
+            serial_write_string(fat_create_file(path) ? "1 (OK)" : "0 (FAILED)");
+            serial_write_string("\n");
+            fm_refresh();
+            break;
+
+        case FM_DIALOG_RENAME: {
+            if (dw->textbox_length == 0) {
+                serial_write_string("FM: Rename cancelled (empty name)\n");
+                break;
+            }
+            char old_path[300];
+            fm_full_path(fm_dialog_target_name, old_path, sizeof(old_path));
+            serial_write_string("FM: fat_rename(\"");
+            serial_write_string(old_path);
+            serial_write_string("\", \"");
+            serial_write_string(dw->textbox_buffer);
+            serial_write_string("\") = ");
+            serial_write_string(fat_rename(old_path, dw->textbox_buffer) ? "1 (OK)" : "0 (FAILED)");
+            serial_write_string("\n");
+            fm_refresh();
+            break;
+        }
+
+        case FM_DIALOG_DELETE_CONFIRM: {
+            char del_path[300];
+            fm_full_path(fm_dialog_target_name, del_path, sizeof(del_path));
+            int ok = fm_dialog_target_is_dir ? fat_delete_dir(del_path) : fat_delete_file(del_path);
+            serial_write_string("FM: ");
+            serial_write_string(fm_dialog_target_is_dir ? "fat_delete_dir(\"" : "fat_delete_file(\"");
+            serial_write_string(del_path);
+            serial_write_string("\") = ");
+            serial_write_string(ok ? "1 (OK)" : "0 (FAILED)");
+            serial_write_string("\n");
+            fm_refresh();
+            break;
+        }
+
+        case FM_DIALOG_NONE:
+        default:
+            break;
+    }
+
+    fm_close_dialog();
+}
+
+static void fm_open_dialog(enum fm_dialog_mode mode, const char *prompt, const char *prefill) {
+    if (fm_dialog_win != -1) {
+        return; /* one dialog at a time */
+    }
+    struct window *fm_win = window_get(fm_win_index);
+    int64_t dx = fm_win ? fm_win->x + 40 : 200;
+    int64_t dy = fm_win ? fm_win->y + 60 : 200;
+
+    fm_dialog_win = window_create(dx, dy, 300, 110, fb_make_color(150, 130, 60),
+                                   fb_make_color(45, 40, 25), "Prompt");
+    window_enable_textbox(fm_dialog_win);
+    window_add_button(fm_dialog_win, 10, 60, 100, 26, fb_make_color(100, 170, 100), fm_dialog_confirm_click);
+    window_add_button(fm_dialog_win, 130, 60, 100, 26, fb_make_color(190, 90, 90), fm_dialog_cancel_click);
+    window_set_render_callback(fm_dialog_win, fm_dialog_render);
+
+    fm_dialog_mode = mode;
+    int i = 0;
+    for (; i < (int)sizeof(fm_dialog_prompt) - 1 && prompt[i]; i++) {
+        fm_dialog_prompt[i] = prompt[i];
+    }
+    fm_dialog_prompt[i] = '\0';
+
+    struct window *dw = window_get(fm_dialog_win);
+    if (dw && prefill) {
+        int j = 0;
+        for (; j < TEXTBOX_BUFFER_SIZE - 1 && prefill[j]; j++) {
+            dw->textbox_buffer[j] = prefill[j];
+        }
+        dw->textbox_buffer[j] = '\0';
+        dw->textbox_length = j;
+    }
+
+    window_focus(fm_dialog_win);
+}
+
 static void fm_on_new_folder_click(void) {
-    serial_write_string("FM: [New Folder] clicked (stub - wired to real fat_create_dir in Phase 10)\n");
+    serial_write_string("FM: [New Folder] clicked\n");
+    fm_open_dialog(FM_DIALOG_NEW_FOLDER, "New folder name:", "");
 }
 
 static void fm_on_new_file_click(void) {
-    serial_write_string("FM: [New File] clicked (stub - wired to real fat_create_file in Phase 10)\n");
+    serial_write_string("FM: [New File] clicked\n");
+    fm_open_dialog(FM_DIALOG_NEW_FILE, "New file name:", "");
 }
 
 static void fm_on_delete_click(void) {
-    serial_write_string("FM: [Delete] clicked (stub - wired to real fat_delete_file/dir in Phase 10)\n");
+    serial_write_string("FM: [Delete] clicked\n");
+    if (fm_selected == -1) {
+        serial_write_string("FM: Delete ignored (no item selected)\n");
+        return;
+    }
+    struct fat_dirent *e = &fm_raw_entries[fm_visible_index[fm_selected]];
+    int i = 0;
+    for (; i < FAT32_NAME_MAX - 1 && e->name[i]; i++) {
+        fm_dialog_target_name[i] = e->name[i];
+    }
+    fm_dialog_target_name[i] = '\0';
+    fm_dialog_target_is_dir = (e->attr & FAT32_ATTR_DIRECTORY) != 0;
+
+    char prompt[64] = "Delete \"";
+    int p = 8;
+    for (int k = 0; e->name[k] && p < 60; k++, p++) {
+        prompt[p] = e->name[k];
+    }
+    prompt[p++] = '"';
+    prompt[p++] = '?';
+    prompt[p] = '\0';
+    fm_open_dialog(FM_DIALOG_DELETE_CONFIRM, prompt, "");
 }
 
 static void fm_on_rename_click(void) {
-    serial_write_string("FM: [Rename] clicked (stub - wired to real rename logic in Phase 10)\n");
+    serial_write_string("FM: [Rename] clicked\n");
+    if (fm_selected == -1) {
+        serial_write_string("FM: Rename ignored (no item selected)\n");
+        return;
+    }
+    struct fat_dirent *e = &fm_raw_entries[fm_visible_index[fm_selected]];
+    int i = 0;
+    for (; i < FAT32_NAME_MAX - 1 && e->name[i]; i++) {
+        fm_dialog_target_name[i] = e->name[i];
+    }
+    fm_dialog_target_name[i] = '\0';
+    fm_open_dialog(FM_DIALOG_RENAME, "Rename to:", fm_dialog_target_name);
 }
 
 static void fm_click(struct window *win, int64_t local_x, int64_t local_y) {
@@ -133,6 +350,22 @@ static void fm_click(struct window *win, int64_t local_x, int64_t local_y) {
         serial_write_string(e->name);
         serial_write_string("\"\n");
         fm_navigate_into(raw_index);
+        return;
+    }
+
+    uint64_t now = timer_get_ticks();
+    int is_double_click = (row == fm_last_click_row) &&
+                           (now - fm_last_click_tick) < FM_DOUBLE_CLICK_TICKS;
+    fm_last_click_row = row;
+    fm_last_click_tick = now;
+
+    if (is_double_click) {
+        char path[300];
+        fm_full_path(e->name, path, sizeof(path));
+        serial_write_string("FM: double-click-to-open file \"");
+        serial_write_string(path);
+        serial_write_string("\"\n");
+        editor_open(path);
     } else {
         fm_selected = row;
         serial_write_string("FM: selected file \"");
@@ -180,6 +413,7 @@ int fm_create_window(int64_t x, int64_t y, uint64_t w, uint64_t h) {
     if (win < 0) {
         return -1;
     }
+    fm_win_index = win;
 
     int64_t bx = 4;
     const int64_t by = 4, bh = 22, gap = 4;

@@ -59,6 +59,7 @@ int window_create(int64_t x, int64_t y, uint64_t w, uint64_t h,
     windows[idx].textbox_buffer[0] = '\0';
     windows[idx].custom_render = 0;
     windows[idx].custom_click = 0;
+    windows[idx].custom_key = 0;
     windows[idx].user_data = 0;
 
     z_order[window_count] = idx;
@@ -102,6 +103,31 @@ void *window_get_user_data(int win_index) {
     return windows[win_index].user_data;
 }
 
+void window_set_key_callback(int win_index, window_key_callback_t cb) {
+    if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
+        return;
+    }
+    windows[win_index].custom_key = cb;
+}
+
+struct window *window_get(int win_index) {
+    if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
+        return 0;
+    }
+    return &windows[win_index];
+}
+
+void window_set_title(int win_index, const char *title) {
+    if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
+        return;
+    }
+    int i = 0;
+    for (; i < WINDOW_TITLE_MAX - 1 && title && title[i]; i++) {
+        windows[win_index].title[i] = title[i];
+    }
+    windows[win_index].title[i] = '\0';
+}
+
 int window_add_button(int win_index, int64_t x, int64_t y, uint64_t w, uint64_t h,
                        uint32_t color, button_callback_t on_click) {
     if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
@@ -137,6 +163,36 @@ static void raise_to_front(int win_idx) {
         z_order[i] = z_order[i + 1];
     }
     z_order[window_count - 1] = win_idx;
+}
+
+void window_focus(int win_index) {
+    if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
+        return;
+    }
+    raise_to_front(win_index);
+}
+
+void window_close(int win_index) {
+    if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
+        return;
+    }
+    int pos = -1;
+    for (int i = 0; i < window_count; i++) {
+        if (z_order[i] == win_index) {
+            pos = i;
+            break;
+        }
+    }
+    if (pos != -1) {
+        for (int i = pos; i < window_count - 1; i++) {
+            z_order[i] = z_order[i + 1];
+        }
+        window_count--;
+    }
+    windows[win_index].in_use = 0;
+    if (dragging_window == win_index) {
+        dragging_window = -1;
+    }
 }
 
 static int point_in_rect(int64_t px, int64_t py, int64_t rx, int64_t ry, uint64_t rw, uint64_t rh) {
@@ -213,6 +269,9 @@ void window_system_update(void) {
         if (focused->has_textbox) {
             while (kb_has_char()) {
                 char c = kb_getchar();
+                if (focused->custom_key && focused->custom_key(focused, c)) {
+                    continue; /* consumed by the window's own key handler (e.g. Ctrl+S) */
+                }
                 if (c == '\b') {
                     if (focused->textbox_length > 0) {
                         focused->textbox_length--;

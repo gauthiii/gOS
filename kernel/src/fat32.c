@@ -824,3 +824,38 @@ int fat_delete_dir(const char *path) {
     sector[loc.offset_in_sector] = 0xE5;
     return ata_write_sector(loc.sector_lba, sector);
 }
+
+int fat_rename(const char *path, const char *new_name) {
+    char parent[256];
+    char name[FAT32_NAME_MAX];
+    split_path(path, parent, name);
+
+    uint32_t parent_cluster;
+    if (!resolve_dir_cluster(parent, &parent_cluster)) {
+        return 0;
+    }
+
+    struct fat_dirent entry;
+    struct dirent_location loc;
+    if (!find_dirent(parent_cluster, name, &entry, &loc)) {
+        return 0; /* source not found */
+    }
+
+    struct fat_dirent clash;
+    struct dirent_location clash_loc;
+    if (find_dirent(parent_cluster, new_name, &clash, &clash_loc)) {
+        return 0; /* destination name already exists */
+    }
+
+    uint8_t new_name83[11];
+    to_83_name(new_name, new_name83);
+
+    static uint8_t sector[ATA_SECTOR_SIZE];
+    if (!ata_read_sector(loc.sector_lba, sector)) {
+        return 0;
+    }
+    for (int i = 0; i < 11; i++) {
+        sector[loc.offset_in_sector + i] = new_name83[i];
+    }
+    return ata_write_sector(loc.sector_lba, sector);
+}

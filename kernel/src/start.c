@@ -480,7 +480,7 @@ void _start(void) {
     serial_write_uint((uint64_t)win_fm);
     serial_write_string("\n");
 
-    for (int frame = 0; frame < 300; frame++) {
+    for (int frame = 0; frame < 500; frame++) {
         fb_clear(fb_make_color(15, 15, 15));
         window_system_update();
         window_composite();

@@ -31,6 +31,14 @@ typedef void (*window_render_callback_t)(struct window *win);
  * manager for row selection / click-to-open. */
 typedef void (*window_click_callback_t)(struct window *win, int64_t local_x, int64_t local_y);
 
+/* Called for every character routed to a focused window with a text box,
+ * before the default typing behavior (append/backspace/enter) runs.
+ * Return 1 to mean "consumed - do not also apply default typing behavior"
+ * (used by Phase 10's text editor to intercept Ctrl+S without it being
+ * inserted as a literal character), or 0 to let default handling proceed
+ * as normal. */
+typedef int (*window_key_callback_t)(struct window *win, char c);
+
 struct window {
     int64_t x, y;
     uint64_t w, h;
@@ -46,6 +54,7 @@ struct window {
 
     window_render_callback_t custom_render;
     window_click_callback_t custom_click;
+    window_key_callback_t custom_key;
     void *user_data;
 };
 
@@ -67,8 +76,27 @@ void window_enable_textbox(int win_index);
  * file manager). Either may be left unset (NULL) if not needed. */
 void window_set_render_callback(int win_index, window_render_callback_t cb);
 void window_set_click_callback(int win_index, window_click_callback_t cb);
+void window_set_key_callback(int win_index, window_key_callback_t cb);
 void window_set_user_data(int win_index, void *data);
 void *window_get_user_data(int win_index);
+
+/* Returns a pointer to the window struct at this index (so callers like
+ * Phase 10's text editor can read/write textbox_buffer directly), or NULL
+ * if the index is out of range / not in use. */
+struct window *window_get(int win_index);
+
+/* Overwrites a window's title (e.g. the text editor retitling itself to
+ * the name of whatever file is currently open). */
+void window_set_title(int win_index, const char *title);
+
+/* Raises a window to the front of the z-order without requiring a mouse
+ * click - used when reusing an already-open window (e.g. the text editor
+ * opening a second file while already visible). */
+void window_focus(int win_index);
+
+/* Frees a window's slot so it can be reused by a future window_create()
+ * call. Does not shift other windows' indices. */
+void window_close(int win_index);
 
 /* Feeds the current mouse state into the window system: handles
  * click-to-focus, title-bar dragging, and button click dispatch. Must be
