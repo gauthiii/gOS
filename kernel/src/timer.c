@@ -3,15 +3,20 @@
 #include <pic.h>
 #include <serial.h>
 
-/* Milestone 2.3 only needs to prove IRQ0 fires periodically; it runs at the
- * PIT's uninitialized default rate (~18.2 Hz) since reprogramming the PIT
- * divisor for a specific frequency is Phase 4's job. */
+#define PIT_CHANNEL0_DATA 0x40
+#define PIT_COMMAND       0x43
+#define PIT_BASE_FREQUENCY_HZ 1193182
+
 static volatile uint64_t ticks = 0;
+
+static inline void outb(uint16_t port, uint8_t val) {
+    __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
+}
 
 static void timer_irq_handler(struct interrupt_frame *frame) {
     (void)frame;
     ticks++;
-    if (ticks % 18 == 0) { /* roughly once a second at the default ~18.2Hz rate */
+    if (ticks % PIT_FREQUENCY_HZ == 0) { /* once a second at the configured rate */
         serial_write_string("Timer tick: ");
         serial_write_uint(ticks);
         serial_write_string("\n");
@@ -23,7 +28,39 @@ uint64_t timer_get_ticks(void) {
     return ticks;
 }
 
+static void pit_set_frequency(uint32_t hz) {
+    uint32_t divisor = PIT_BASE_FREQUENCY_HZ / hz;
+    /* 0x36 = channel 0, lobyte/hibyte access mode, mode 3 (square wave) */
+    outb(PIT_COMMAND, 0x36);
+    outb(PIT_CHANNEL0_DATA, (uint8_t)(divisor & 0xFF));
+    outb(PIT_CHANNEL0_DATA, (uint8_t)((divisor >> 8) & 0xFF));
+}
+
 void timer_init(void) {
     idt_register_irq_handler(0, timer_irq_handler);
+    pit_set_frequency(PIT_FREQUENCY_HZ);
     pic_clear_mask(0);
+}
+
+void sleep_ms(uint32_t ms) {
+    uint64_t target = ticks + ((uint64_t)ms * PIT_FREQUENCY_HZ) / 1000;
+    while (ticks < target) {
+        __asm__ volatile ("hlt");
+    }
+}
+
+void timer_self_test(void) {
+    serial_write_string("Timer self-test: sleeping 2000ms (tick=");
+    serial_write_uint(ticks);
+    serial_write_string(")...\n");
+    uint64_t before = ticks;
+    sleep_ms(2000);
+    uint64_t after = ticks;
+    serial_write_string("Timer self-test: woke up (tick=");
+    serial_write_uint(after);
+    serial_write_string("), ");
+    serial_write_uint(after - before);
+    serial_write_string(" ticks elapsed at ");
+    serial_write_uint(PIT_FREQUENCY_HZ);
+    serial_write_string("Hz (expected ~200)\n");
 }

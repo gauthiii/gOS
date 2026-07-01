@@ -8,6 +8,7 @@
 #include <pmm.h>
 #include <vmm.h>
 #include <heap.h>
+#include <keyboard.h>
 
 extern uint8_t __kernel_virt_start[];
 extern uint8_t __kernel_virt_end[];
@@ -185,6 +186,24 @@ void _start(void) {
 
     heap_init();
     heap_self_test();
+
+    timer_self_test();
+
+    keyboard_init();
+    serial_write_string("Keyboard driver initialized (IRQ1 unmasked)\n");
+
+#if defined(GOS_TEST_KEYBOARD)
+    serial_write_string("TEST: reading 5 characters from keyboard (waiting for keypresses)...\n");
+    for (int i = 0; i < 5; i++) {
+        char c = kb_getchar();
+        serial_write_string("Got char: '");
+        serial_write_char(c);
+        serial_write_string("' (");
+        serial_write_hex64((uint64_t)(uint8_t)c);
+        serial_write_string(")\n");
+    }
+    serial_write_string("TEST: keyboard test complete\n");
+#endif
 
     serial_write_string("=== gOS boot checks complete ===\n");
 

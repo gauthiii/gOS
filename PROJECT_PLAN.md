@@ -1,6 +1,6 @@
 # gOS — Gauthiii's Operating System — Project Plan
 
-**Last updated:** 2026-06-30 (Phase 0 completed — see [phase0.md](phase0.md); Phase 1 completed — see [phase1.md](phase1.md); Phase 2 completed — see [phase2.md](phase2.md); Phase 3 completed — see [phase3.md](phase3.md))
+**Last updated:** 2026-06-30 (Phase 0 completed — see [phase0.md](phase0.md); Phase 1 completed — see [phase1.md](phase1.md); Phase 2 completed — see [phase2.md](phase2.md); Phase 3 completed — see [phase3.md](phase3.md); Phase 4 completed — see [phase4.md](phase4.md))
 
 ## 1. Project Overview
 
@@ -138,16 +138,16 @@
 
 *(Serial already exists from 1.2 — this phase extends it and adds new drivers.)*
 
-**Milestone 4.1: PIT timer driver with tick counting**
-- [ ] Program the PIT (Programmable Interval Timer, port 0x40/0x43) to a fixed frequency (e.g., 100 Hz)
-- [ ] Maintain a global tick counter incremented in the IRQ0 handler
-- [ ] Implement a `sleep_ms(ms)` busy-wait or tick-wait function and verify timing accuracy against a stopwatch
+**Milestone 4.1: PIT timer driver with tick counting** — ✅ Done (see [phase4.md](phase4.md))
+- [x] Program the PIT (Programmable Interval Timer, port 0x40/0x43) to a fixed frequency (100 Hz)
+- [x] Maintain a global tick counter incremented in the IRQ0 handler
+- [x] Implement a `sleep_ms(ms)` busy-wait/tick-wait function and verify timing accuracy against a stopwatch (host `time` command used as the stopwatch, since QEMU is headless)
 
-**Milestone 4.2: PS/2 keyboard driver**
-- [ ] Read scancodes from port 0x60 in the IRQ1 handler
-- [ ] Implement a scancode-set-1-to-ASCII translation table (handle shift, caps lock, at minimum)
-- [ ] Buffer keypresses in a small ring buffer; expose `kb_getchar()` (blocking) to kernel code
-- [ ] Test: type on the QEMU window and see characters echoed over serial
+**Milestone 4.2: PS/2 keyboard driver** — ✅ Done (see [phase4.md](phase4.md))
+- [x] Read scancodes from port 0x60 in the IRQ1 handler
+- [x] Implement a scancode-set-1-to-ASCII translation table (handles shift and caps lock)
+- [x] Buffer keypresses in a small ring buffer; expose `kb_getchar()` (blocking) to kernel code
+- [x] Test: simulated keypresses via QEMU monitor `sendkey` (headless equivalent of typing on the QEMU window) correctly echoed over serial
 
 **Dependency note:** Phase 7 (text input) directly consumes `kb_getchar()`/the keyboard ring buffer from 4.2.
 
@@ -387,13 +387,13 @@ This assumes steady 5–10 hr/week pace with no major multi-week stalls. Phases 
 | 3 | 3.3 Kernel heap | Implement heap backed by vmm_map_page | Done | `kernel/src/heap.c` — freelist allocator (first-fit, forward coalescing), grows via `vmm_map_page`/`pmm_alloc_page` on demand, 64MiB virtual ceiling for v1. |
 | 3 | 3.3 Kernel heap | Implement kmalloc/kfree | Done | Header+footer magic guards on every block for corruption detection. |
 | 3 | 3.3 Kernel heap | Stress test alloc/free mix | Done | `heap_self_test()` — 300 randomized alloc/free cycles (small 8-64B and large 512-4096B blocks) with content-integrity checks, plus a deliberate buffer-overrun test proving the guard actually detects corruption. Verified live: "PASS (300 cycles clean, guard correctly detected deliberate overrun)". |
-| 4 | 4.1 PIT timer driver | Program PIT to fixed frequency | Not Started | |
-| 4 | 4.1 PIT timer driver | Maintain tick counter in IRQ0 | Not Started | |
-| 4 | 4.1 PIT timer driver | Implement sleep_ms, verify timing | Not Started | |
-| 4 | 4.2 PS/2 keyboard driver | Read scancodes in IRQ1 handler | Not Started | |
-| 4 | 4.2 PS/2 keyboard driver | Scancode-to-ASCII translation table | Not Started | |
-| 4 | 4.2 PS/2 keyboard driver | Ring buffer + kb_getchar() | Not Started | |
-| 4 | 4.2 PS/2 keyboard driver | Test typing, echo over serial | Not Started | |
+| 4 | 4.1 PIT timer driver | Program PIT to fixed frequency | Done | `kernel/src/timer.c` — PIT channel 0 programmed to 100Hz via divisor `1193182/100`; replaces Phase 2's unprogrammed default ~18.2Hz rate. |
+| 4 | 4.1 PIT timer driver | Maintain tick counter in IRQ0 | Done | Existing IRQ0 handler from Phase 2.3 extended to log once/second at the new 100Hz rate (every 100th tick instead of every 18th). |
+| 4 | 4.1 PIT timer driver | Implement sleep_ms, verify timing | Done | `sleep_ms()` tick-waits in a `hlt` loop. Verified live: `timer_self_test()` requested 2000ms, measured exactly 200 ticks at 100Hz; independently corroborated via host `time` wrapper showing ~13 real seconds of "Timer tick" logs matching wall clock. |
+| 4 | 4.2 PS/2 keyboard driver | Read scancodes in IRQ1 handler | Done | `kernel/src/keyboard.c` — reads port 0x60 in the IRQ1 handler (stub already existed generically from Phase 2.3's 16-IRQ setup). |
+| 4 | 4.2 PS/2 keyboard driver | Scancode-to-ASCII translation table | Done | US QWERTY scancode-set-1 tables (unshifted + shifted), shift key state tracking (make/break), caps lock toggle (inverts shift for letters only, per real keyboard behavior). |
+| 4 | 4.2 PS/2 keyboard driver | Ring buffer + kb_getchar() | Done | 256-byte ring buffer, `kb_getchar()` blocks via `hlt` loop until a character is available; `kb_has_char()` added for future non-blocking use (Phase 7). |
+| 4 | 4.2 PS/2 keyboard driver | Test typing, echo over serial | Done | Headless equivalent of "type on the QEMU window": used QEMU monitor `sendkey` to simulate keystrokes (g, shift-o, 1, ret, shift-a — then h, shift-i, 9, ret, z on a second run), verified live via serial log that every character was translated correctly (lowercase, shifted-uppercase, digit, enter, all exact matches). |
 | 5 | 5.1 Raw pixel plotting | Extract framebuffer info from Limine | Not Started | |
 | 5 | 5.1 Raw pixel plotting | Implement fb_put_pixel | Not Started | |
 | 5 | 5.1 Raw pixel plotting | Clear screen to solid color | Not Started | |
