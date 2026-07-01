@@ -1,6 +1,6 @@
 # gOS — Gauthiii's Operating System — Project Plan
 
-**Last updated:** 2026-07-01 (Phase 0 completed — see [phase0.md](phase0.md); Phase 1 completed — see [phase1.md](phase1.md); Phase 2 completed — see [phase2.md](phase2.md); Phase 3 completed — see [phase3.md](phase3.md); Phase 4 completed — see [phase4.md](phase4.md); Phase 5 completed — see [phase5.md](phase5.md); Phase 6 completed — see [phase6.md](phase6.md))
+**Last updated:** 2026-07-01 (Phase 0 completed — see [phase0.md](phase0.md); Phase 1 completed — see [phase1.md](phase1.md); Phase 2 completed — see [phase2.md](phase2.md); Phase 3 completed — see [phase3.md](phase3.md); Phase 4 completed — see [phase4.md](phase4.md); Phase 5 completed — see [phase5.md](phase5.md); Phase 6 completed — see [phase6.md](phase6.md); Phase 7 completed — see [phase7.md](phase7.md))
 
 ## 1. Project Overview
 
@@ -207,22 +207,22 @@
 ### Phase 7 — Font Rendering & Text Input
 **Estimated time: 10–16 hours (~2 weeks)**
 
-**Milestone 7.1: Bitmap font rendering**
-- [ ] Embed a monospace bitmap font (e.g., an 8x16 PSF1 font, or hand-embed a public-domain font as a C byte array)
-- [ ] Implement `fb_draw_char(x, y, ch, fg, bg)` by blitting the glyph bitmap
-- [ ] Implement `fb_draw_string(x, y, str, fg, bg)`
-- [ ] Test: render "Hello, gOS!" at a fixed screen position at boot
+**Milestone 7.1: Bitmap font rendering** — ✅ Done (see [phase7.md](phase7.md))
+- [x] Embed a monospace bitmap font (8x8 public-domain font, `font8x8_basic.h` by Daniel Hepper/Marcel Sondaar, hand-embedded as a C byte array — chosen over an 8x16 PSF1 file since the plan explicitly allows either)
+- [x] Implement `fb_draw_char(x, y, ch, fg, bg)` by blitting the glyph bitmap
+- [x] Implement `fb_draw_string(x, y, str, fg, bg)`
+- [x] Test: render "Hello, gOS!" at a fixed screen position at boot — verified visually via screendump, legible and correctly formed
 
-**Milestone 7.2: Text rendering inside windows**
-- [ ] Add a text rendering helper that clips to a window's content rect
-- [ ] Render a window title using the font renderer instead of a placeholder rect
-- [ ] Test: window title bars show real text ("File Manager", "Text Editor")
+**Milestone 7.2: Text rendering inside windows** — ✅ Done (see [phase7.md](phase7.md))
+- [x] Add a text rendering helper that clips to a window's content rect (`fb_draw_string_clipped`)
+- [x] Render a window title using the font renderer instead of a placeholder rect
+- [x] Test: window title bars show real text ("Window A", "Window B", "Text Editor") — verified visually via screendump
 
-**Milestone 7.3: Keyboard input routed to focused window**
-- [ ] Route `kb_getchar()` events (from 4.2) to whichever window currently has focus
-- [ ] Implement a simple text buffer widget: appends printable characters, handles Backspace, Enter
-- [ ] Implement a blinking text cursor drawn at the current insertion point
-- [ ] Test: a window with a text box that you can click into and type text, with visible cursor and backspace working
+**Milestone 7.3: Keyboard input routed to focused window** — ✅ Done (see [phase7.md](phase7.md))
+- [x] Route `kb_getchar()` events (from 4.2) to whichever window currently has focus (defined as the frontmost window in the z-order, consistent with Phase 6's click-to-focus)
+- [x] Implement a simple text buffer widget: appends printable characters, handles Backspace, Enter (Enter inserted as `\n`, reusing the font renderer's existing newline handling for free multi-line text)
+- [x] Implement a blinking text cursor drawn at the current insertion point (implemented as a literal `_` character conditionally appended before rendering, avoiding separate cursor-position tracking)
+- [x] Test: a window with a text box that you can click into and type text, with visible cursor and backspace working — verified with real simulated keystrokes via QEMU monitor `sendkey`, confirmed pixel-exact via raw PPM inspection (not just a visual glance)
 
 **Dependency note:** 7.3 is a hard prerequisite for the text editor in Phase 9/10 — do not start the text editor UI before this milestone is solid.
 
@@ -419,16 +419,16 @@ This assumes steady 5–10 hr/week pace with no major multi-week stalls. Phases 
 | 6 | 6.4 Basic widgets | Define button widget | Done | Rect + color + callback, positioned relative to its parent window's body (moves correctly with the window). |
 | 6 | 6.4 Basic widgets | Implement hit-testing/dispatch | Done | Click coordinates → frontmost window under cursor → local body-relative coordinates → button rect test → callback invocation. |
 | 6 | 6.4 Basic widgets | Test clickable button | Done | Verified live: two real simulated clicks on the button both dispatched correctly (`Button clicked! (click count=1)`, then `2`), with cursor visually confirmed positioned over the button in the triggering screendump. |
-| 7 | 7.1 Bitmap font rendering | Embed bitmap font data | Not Started | |
-| 7 | 7.1 Bitmap font rendering | Implement fb_draw_char | Not Started | |
-| 7 | 7.1 Bitmap font rendering | Implement fb_draw_string | Not Started | |
-| 7 | 7.1 Bitmap font rendering | Test render "Hello, gOS!" | Not Started | |
-| 7 | 7.2 Text in windows | Add clipped text rendering helper | Not Started | |
-| 7 | 7.2 Text in windows | Render real window titles | Not Started | |
-| 7 | 7.3 Keyboard input to window | Route kb events to focused window | Not Started | |
-| 7 | 7.3 Keyboard input to window | Implement text buffer widget | Not Started | |
-| 7 | 7.3 Keyboard input to window | Implement blinking text cursor | Not Started | |
-| 7 | 7.3 Keyboard input to window | Test typing into text box | Not Started | |
+| 7 | 7.1 Bitmap font rendering | Embed bitmap font data | Done | `kernel/src/font8x8_basic.h` — public-domain 8x8 CP437/Latin font, downloaded from dhepper/font8x8 (traces to IBM VGA ROM fonts). |
+| 7 | 7.1 Bitmap font rendering | Implement fb_draw_char | Done | `kernel/src/font.c` — bit-tests each glyph row, bit 0 = leftmost pixel. |
+| 7 | 7.1 Bitmap font rendering | Implement fb_draw_string | Done | Handles `\n` as a line break, advancing y by FONT_HEIGHT. |
+| 7 | 7.1 Bitmap font rendering | Test render "Hello, gOS!" | Done | Verified live via screendump — text renders crisply, correctly formed, not mirrored/garbled. Screenshot saved to `screenshots/phase7_7.1_hello_gos.png`. |
+| 7 | 7.2 Text in windows | Add clipped text rendering helper | Done | `fb_draw_string_clipped` — per-pixel bounds check against a clip rect, reused by both window titles and the Phase 7.3 text box. |
+| 7 | 7.2 Text in windows | Render real window titles | Done | Added a `title` field to `struct window`; verified live via screendump showing "Window A", "Window B", "Text Editor" all legible and correctly clipped. Screenshot saved to `screenshots/phase7_7.2_window_titles.png`. |
+| 7 | 7.3 Keyboard input to window | Route kb events to focused window | Done | `window_system_update()` drains `kb_has_char()`/`kb_getchar()` into whichever window is frontmost in the z-order; verified only the focused window's text box receives input. |
+| 7 | 7.3 Keyboard input to window | Implement text buffer widget | Done | 512-byte per-window buffer; verified live via simulated typing ("hello") appearing correctly in the Text Editor window. Screenshot saved to `screenshots/phase7_7.3_typed_hello.png`. |
+| 7 | 7.3 Keyboard input to window | Implement blinking text cursor | Done | Ticks-based blink (0.5s on/off at the Phase 4 100Hz timer rate); visible as `_` in both saved screenshots. |
+| 7 | 7.3 Keyboard input to window | Test typing into text box | Done | Verified backspace (typed "gosx", backspace removed the 'x', leaving "gos") and Enter/newline + shifted-character input ('@') via raw PPM pixel-level inspection, not just a visual glance. Screenshot saved to `screenshots/phase7_7.3_backspace_enter.png`. |
 | 8 | 8.1 Disk/block access | Implement ATA PIO read_sector | Not Started | |
 | 8 | 8.1 Disk/block access | Implement ATA PIO write_sector | Not Started | |
 | 8 | 8.1 Disk/block access | Test read sector 0, log signature | Not Started | |

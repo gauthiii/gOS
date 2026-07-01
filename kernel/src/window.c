@@ -1,6 +1,9 @@
 #include <window.h>
 #include <mouse.h>
+#include <keyboard.h>
+#include <timer.h>
 #include <fb.h>
+#include <font.h>
 #include <serial.h>
 
 static struct window windows[MAX_WINDOWS];
@@ -21,7 +24,7 @@ void window_system_init(void) {
 }
 
 int window_create(int64_t x, int64_t y, uint64_t w, uint64_t h,
-                   uint32_t titlebar_color, uint32_t body_color) {
+                   uint32_t titlebar_color, uint32_t body_color, const char *title) {
     if (window_count >= MAX_WINDOWS) {
         return -1;
     }
@@ -43,14 +46,29 @@ int window_create(int64_t x, int64_t y, uint64_t w, uint64_t h,
     windows[idx].titlebar_color = titlebar_color;
     windows[idx].body_color = body_color;
     windows[idx].in_use = 1;
+    int i2 = 0;
+    for (; i2 < WINDOW_TITLE_MAX - 1 && title && title[i2]; i2++) {
+        windows[idx].title[i2] = title[i2];
+    }
+    windows[idx].title[i2] = '\0';
     for (int i = 0; i < MAX_WIDGETS_PER_WINDOW; i++) {
         windows[idx].buttons[i].in_use = 0;
     }
+    windows[idx].has_textbox = 0;
+    windows[idx].textbox_length = 0;
+    windows[idx].textbox_buffer[0] = '\0';
 
     z_order[window_count] = idx;
     window_count++;
 
     return idx;
+}
+
+void window_enable_textbox(int win_index) {
+    if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
+        return;
+    }
+    windows[win_index].has_textbox = 1;
 }
 
 int window_add_button(int win_index, int64_t x, int64_t y, uint64_t w, uint64_t h,
@@ -148,12 +166,41 @@ void window_system_update(void) {
     }
 
     prev_buttons = buttons;
+
+    /* Route keyboard input to the focused window - defined as whichever
+     * window is currently frontmost in the z-order (the same window
+     * click-to-focus just raised, if a click happened this frame). Only
+     * the focused window's text box (if it has one) receives characters;
+     * unfocused windows' text boxes are untouched even if they have one. */
+    if (window_count > 0) {
+        struct window *focused = &windows[z_order[window_count - 1]];
+        if (focused->has_textbox) {
+            while (kb_has_char()) {
+                char c = kb_getchar();
+                if (c == '\b') {
+                    if (focused->textbox_length > 0) {
+                        focused->textbox_length--;
+                        focused->textbox_buffer[focused->textbox_length] = '\0';
+                    }
+                } else if (focused->textbox_length < TEXTBOX_BUFFER_SIZE - 1) {
+                    focused->textbox_buffer[focused->textbox_length++] = c;
+                    focused->textbox_buffer[focused->textbox_length] = '\0';
+                }
+            }
+        }
+    }
 }
 
 static void draw_window(struct window *win) {
     fb_draw_rect(win->x, win->y, win->w, WINDOW_TITLEBAR_HEIGHT, win->titlebar_color);
     fb_draw_rect(win->x, win->y + WINDOW_TITLEBAR_HEIGHT, win->w, win->h, win->body_color);
     fb_draw_rect_outline(win->x, win->y, win->w, win->h + WINDOW_TITLEBAR_HEIGHT, fb_make_color(0, 0, 0), 2);
+
+    /* Title text, clipped to the title bar rect so a long title can never
+     * spill out into the body or past the window's right edge. */
+    fb_draw_string_clipped(win->x + 6, win->y + (WINDOW_TITLEBAR_HEIGHT - FONT_HEIGHT) / 2,
+                            win->title, fb_make_color(255, 255, 255), win->titlebar_color,
+                            win->x, win->y, win->w, WINDOW_TITLEBAR_HEIGHT);
 
     for (int i = 0; i < MAX_WIDGETS_PER_WINDOW; i++) {
         struct button *b = &win->buttons[i];
@@ -164,6 +211,33 @@ static void draw_window(struct window *win) {
         int64_t by = win->y + WINDOW_TITLEBAR_HEIGHT + b->y;
         fb_draw_rect(bx, by, b->w, b->h, b->color);
         fb_draw_rect_outline(bx, by, b->w, b->h, fb_make_color(0, 0, 0), 1);
+    }
+
+    if (win->has_textbox) {
+        int64_t body_x = win->x;
+        int64_t body_y = win->y + WINDOW_TITLEBAR_HEIGHT;
+
+        /* Blinking cursor: appended as a literal '_' character to a local
+         * copy of the buffer when visible, rather than computed as a
+         * separate drawn rectangle at a tracked (x,y) - this reuses
+         * fb_draw_string_clipped's own line-wrapping logic for free,
+         * instead of duplicating it to find the cursor's position. */
+        char display[TEXTBOX_BUFFER_SIZE + 2];
+        int i = 0;
+        for (; i < win->textbox_length; i++) {
+            display[i] = win->textbox_buffer[i];
+        }
+        int this_index = (int)(win - windows);
+        int is_focused = (window_count > 0) && (z_order[window_count - 1] == this_index);
+        int blink_on = (timer_get_ticks() / 50) % 2 == 0;
+        if (is_focused && blink_on) {
+            display[i++] = '_';
+        }
+        display[i] = '\0';
+
+        fb_draw_string_clipped(body_x + 4, body_y + 4, display,
+                                fb_make_color(255, 255, 255), win->body_color,
+                                body_x, body_y, win->w, win->h);
     }
 }
 

@@ -12,6 +12,7 @@
 #include <fb.h>
 #include <mouse.h>
 #include <window.h>
+#include <font.h>
 
 extern uint8_t __kernel_virt_start[];
 extern uint8_t __kernel_virt_end[];
@@ -259,6 +260,16 @@ void _start(void) {
     }
     serial_write_string("FB: bouncing-rectangle animation complete (40 frames flipped)\n");
 
+    /* Milestone 7.1: render "Hello, gOS!" at a fixed position using the
+     * new bitmap font renderer, and hold that frame for ~2 seconds so it
+     * can be captured with a screendump before the mouse/window demos
+     * take over the screen. */
+    fb_clear(fb_make_color(10, 10, 10));
+    fb_draw_string(40, 40, "Hello, gOS!", fb_make_color(255, 255, 255), fb_make_color(10, 10, 10));
+    fb_flip();
+    serial_write_string("FB: \"Hello, gOS!\" rendered via bitmap font\n");
+    sleep_ms(2000);
+
     mouse_init();
 
     /* Milestone 6.1 live test: redraw the cursor at its current tracked
@@ -300,10 +311,11 @@ void _start(void) {
      * seconds via QEMU monitor mouse_move/mouse_button commands - see
      * phase6.md for the exact test procedure. */
     window_system_init();
-    int win_a = window_create(150, 150, 300, 200, fb_make_color(70, 70, 200), fb_make_color(30, 30, 60));
-    int win_b = window_create(400, 250, 280, 180, fb_make_color(200, 70, 70), fb_make_color(60, 30, 30));
-    int win_c = window_create(280, 350, 260, 160, fb_make_color(70, 200, 120), fb_make_color(30, 60, 40));
+    int win_a = window_create(150, 150, 300, 200, fb_make_color(70, 70, 200), fb_make_color(30, 30, 60), "Window A");
+    int win_b = window_create(400, 250, 280, 180, fb_make_color(200, 70, 70), fb_make_color(60, 30, 30), "Window B");
+    int win_c = window_create(280, 350, 260, 160, fb_make_color(70, 200, 120), fb_make_color(30, 60, 40), "Text Editor");
     window_add_button(win_a, 20, 20, 120, 30, fb_make_color(80, 200, 80), on_test_button_click);
+    window_enable_textbox(win_c);
     serial_write_string("Window system initialized: window_a=");
     serial_write_uint((uint64_t)win_a);
     serial_write_string(" window_b=");
