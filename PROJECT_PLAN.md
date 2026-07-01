@@ -1,6 +1,6 @@
 # gOS — Gauthiii's Operating System — Project Plan
 
-**Last updated:** 2026-06-30 (Phase 0 completed — see [phase0.md](phase0.md); Phase 1 completed — see [phase1.md](phase1.md))
+**Last updated:** 2026-06-30 (Phase 0 completed — see [phase0.md](phase0.md); Phase 1 completed — see [phase1.md](phase1.md); Phase 2 completed — see [phase2.md](phase2.md))
 
 ## 1. Project Overview
 
@@ -89,21 +89,21 @@
 ### Phase 2 — Kernel Foundations (GDT/IDT/Interrupts)
 **Estimated time: 12–18 hours (~2 weeks)**
 
-**Milestone 2.1: Custom GDT is loaded**
-- [ ] Define a GDT with null, kernel code, kernel data, user code, user data, and TSS descriptors
-- [ ] Write `gdt_load` in ASM (`lgdt` + far jump to reload `cs`)
-- [ ] Load the new GDT at kernel init and confirm via serial log that segment registers hold expected selectors
+**Milestone 2.1: Custom GDT is loaded** — ✅ Done (see [phase2.md](phase2.md))
+- [x] Define a GDT with null, kernel code, kernel data, user code, user data, and TSS descriptors
+- [x] Write `gdt_load` in ASM (`lgdt` + far return to reload `cs`)
+- [x] Load the new GDT at kernel init and confirm via serial log that segment registers hold expected selectors
 
-**Milestone 2.2: IDT and exception handlers are wired up**
-- [ ] Define an IDT with 256 entries
-- [ ] Write ASM interrupt-entry trampolines (stub per vector, pushes error code/vector, jumps to common handler) for at least the 32 CPU exception vectors
-- [ ] Write a C `isr_handler(struct interrupt_frame*)` that logs vector number, error code, and `rip` to serial
-- [ ] Deliberately trigger a divide-by-zero (`int 0/0`) and a page fault (write to unmapped address) and confirm both are caught and logged instead of triple-faulting
+**Milestone 2.2: IDT and exception handlers are wired up** — ✅ Done (see [phase2.md](phase2.md))
+- [x] Define an IDT with 256 entries
+- [x] Write ASM interrupt-entry trampolines (stub per vector, pushes error code/vector, jumps to common handler) for all 32 CPU exception vectors (plus 16 IRQ stubs for Milestone 2.3)
+- [x] Write a C `isr_handler(struct interrupt_frame*)` that logs vector number, error code, and `rip` to serial
+- [x] Deliberately trigger a divide-by-zero (`int 0/0`) and a page fault (write to unmapped address) and confirm both are caught and logged instead of triple-faulting
 
-**Milestone 2.3: Hardware interrupts (PIC/APIC) are enabled**
-- [ ] Remap the legacy 8259 PIC (or initialize the Local APIC + IOAPIC if going the modern route — **recommend legacy PIC first for simplicity**, revisit APIC only if SMP is ever added)
-- [ ] Write IRQ entry stubs for IRQ0 (timer) and IRQ1 (keyboard), mapped to IDT vectors 32+
-- [ ] Enable interrupts (`sti`) and confirm a timer tick handler fires periodically (log every Nth tick to serial without flooding output)
+**Milestone 2.3: Hardware interrupts (PIC/APIC) are enabled** — ✅ Done (see [phase2.md](phase2.md))
+- [x] Remap the legacy 8259 PIC (used legacy PIC per the plan's own recommendation — no APIC/SMP needed yet)
+- [x] Write IRQ entry stubs for IRQ0 (timer) and IRQ1 (keyboard), mapped to IDT vectors 32+ (implemented generically for all 16 IRQs 32-47)
+- [x] Enable interrupts (`sti`) and confirm a timer tick handler fires periodically (log every Nth tick to serial without flooding output)
 
 **Dependency note:** Phase 4 keyboard driver requires IRQ1 (2.3) to already deliver interrupts. Phase 3's page fault handler requires 2.2's exception plumbing.
 
@@ -366,16 +366,16 @@ This assumes steady 5–10 hr/week pace with no major multi-week stalls. Phases 
 | 1 | 1.2 Serial output alive | Implement serial_write_char/string | Done | Plus `serial_write_hex64`/`serial_write_uint` helpers added for memmap/framebuffer dumping. |
 | 1 | 1.2 Serial output alive | Print boot banner | Done | "=== gOS booting... ===" visible over `-serial stdio` in QEMU. |
 | 1 | 1.2 Serial output alive | Confirm memory map + framebuffer info | Done | Verified live: 36 memmap entries, 207 MiB usable RAM, framebuffer 1280x800x32bpp at 0xffff800080000000. |
-| 2 | 2.1 Custom GDT loaded | Define GDT descriptors | Not Started | |
-| 2 | 2.1 Custom GDT loaded | Write gdt_load in ASM | Not Started | |
-| 2 | 2.1 Custom GDT loaded | Load GDT, verify segment registers | Not Started | |
-| 2 | 2.2 IDT + exceptions wired | Define 256-entry IDT | Not Started | |
-| 2 | 2.2 IDT + exceptions wired | Write ASM ISR trampolines (32 vectors) | Not Started | |
-| 2 | 2.2 IDT + exceptions wired | Write C isr_handler with logging | Not Started | |
-| 2 | 2.2 IDT + exceptions wired | Trigger div-by-zero + page fault, confirm caught | Not Started | |
-| 2 | 2.3 Hardware interrupts enabled | Remap 8259 PIC | Not Started | |
-| 2 | 2.3 Hardware interrupts enabled | Write IRQ0/IRQ1 entry stubs | Not Started | |
-| 2 | 2.3 Hardware interrupts enabled | Enable interrupts, confirm timer ticks | Not Started | |
+| 2 | 2.1 Custom GDT loaded | Define GDT descriptors | Done | `kernel/src/gdt.c` — null, kernel code/data, user code/data, plus a 16-byte long-mode TSS descriptor with a static 16KiB rsp0 stack. |
+| 2 | 2.1 Custom GDT loaded | Write gdt_load in ASM | Done | `kernel/src/gdt_flush.asm` — `lgdt`, reloads data segments directly, reloads CS via `retfq` trick (can't `mov` into CS), then `ltr` for the TSS. |
+| 2 | 2.1 Custom GDT loaded | Load GDT, verify segment registers | Done | Verified live via serial: CS=0x08, DS=SS=0x10, TR=0x28 — exact match to the defined layout. |
+| 2 | 2.2 IDT + exceptions wired | Define 256-entry IDT | Done | `kernel/src/idt.c` — all 256 entries; vectors 0-31 exceptions, 32-47 remapped IRQs, rest currently unused (default/blank). |
+| 2 | 2.2 IDT + exceptions wired | Write ASM ISR trampolines (32 vectors) | Done | `kernel/src/isr.asm` — macro-generated stubs for all 32 exception vectors (correct error-code-vs-no-error-code push per vector) plus all 16 IRQ stubs (32-47), sharing one common register-save/dispatch/restore stub. |
+| 2 | 2.2 IDT + exceptions wired | Write C isr_handler with logging | Done | `isr_handler()` in `idt.c` — logs vector, exception name, error code, RIP/CS/RFLAGS/RSP, plus CR2 specifically for page faults (vector 14). |
+| 2 | 2.2 IDT + exceptions wired | Trigger div-by-zero + page fault, confirm caught | Done | Verified live via temporary `#ifdef` test triggers (build-time only, not in normal boot path): divide-by-zero correctly reported as Vector 0; page fault correctly reported as Vector 14 with CR2=0xdeadbeef000 matching the exact bad address written to. Both halted cleanly, no triple fault. |
+| 2 | 2.3 Hardware interrupts enabled | Remap 8259 PIC | Done | `kernel/src/pic.c` — remaps IRQ0-7 to vectors 32-39 and IRQ8-15 to 40-47, preserves original interrupt masks across remap, provides `pic_send_eoi`/`pic_set_mask`/`pic_clear_mask`. |
+| 2 | 2.3 Hardware interrupts enabled | Write IRQ0/IRQ1 entry stubs | Done | Covered generically by all 16 IRQ stubs added in the 2.2 ISR work; `idt_register_irq_handler()` added as a dispatch mechanism for individual IRQ handlers (used by the timer in this milestone, keyboard driver comes in Phase 4). |
+| 2 | 2.3 Hardware interrupts enabled | Enable interrupts, confirm timer ticks | Done | `kernel/src/timer.c` registers an IRQ0 handler, unmasks IRQ0, `sti` executed in `_start`. Verified live: ticks increment and log roughly once per second (18 ticks) at the PIT's default ~18.2Hz rate, sustained over 13+ seconds with no crash. |
 | 3 | 3.1 Physical memory allocator | Parse Limine memory map | Not Started | |
 | 3 | 3.1 Physical memory allocator | Implement bitmap PMM alloc/free | Not Started | |
 | 3 | 3.1 Physical memory allocator | Reserve kernel/framebuffer regions | Not Started | |

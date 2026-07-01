@@ -1,6 +1,10 @@
 #include <limine.h>
 #include <stdint.h>
 #include <serial.h>
+#include <gdt.h>
+#include <idt.h>
+#include <pic.h>
+#include <timer.h>
 
 __attribute__((used, section(".requests")))
 static volatile LIMINE_BASE_REVISION(3);
@@ -53,6 +57,42 @@ void _start(void) {
     }
     serial_write_string("Limine base revision: supported\n");
 
+    gdt_init();
+    {
+        uint16_t cs, ds, ss, tr;
+        __asm__ volatile ("mov %%cs, %0" : "=r"(cs));
+        __asm__ volatile ("mov %%ds, %0" : "=r"(ds));
+        __asm__ volatile ("mov %%ss, %0" : "=r"(ss));
+        __asm__ volatile ("str %0" : "=r"(tr));
+        serial_write_string("GDT loaded. CS=");
+        serial_write_hex64(cs);
+        serial_write_string(" DS=");
+        serial_write_hex64(ds);
+        serial_write_string(" SS=");
+        serial_write_hex64(ss);
+        serial_write_string(" TR=");
+        serial_write_hex64(tr);
+        serial_write_string("\n");
+    }
+
+    idt_init();
+    serial_write_string("IDT loaded (256 entries, vectors 0-31 exceptions, 32-47 reserved for IRQs)\n");
+
+#if defined(GOS_TEST_DIVIDE_BY_ZERO)
+    serial_write_string("TEST: deliberately triggering divide-by-zero...\n");
+    {
+        volatile int a = 10, b = 0;
+        volatile int c = a / b;
+        (void)c;
+    }
+#elif defined(GOS_TEST_PAGE_FAULT)
+    serial_write_string("TEST: deliberately triggering page fault (write to unmapped address)...\n");
+    {
+        volatile uint64_t *bad_ptr = (volatile uint64_t *)0xdeadbeef000ULL;
+        *bad_ptr = 0x1234;
+    }
+#endif
+
     if (memmap_request.response == 0) {
         serial_write_string("PANIC: no memmap response from Limine\n");
         hcf();
@@ -101,6 +141,13 @@ void _start(void) {
     serial_write_string("\nFramebuffer bpp: ");
     serial_write_uint(fb->bpp);
     serial_write_string("\n");
+
+    pic_remap();
+    serial_write_string("PIC remapped: IRQ0-7 -> vectors 32-39, IRQ8-15 -> vectors 40-47\n");
+
+    timer_init();
+    __asm__ volatile ("sti");
+    serial_write_string("Interrupts enabled (sti). Waiting for timer ticks...\n");
 
     serial_write_string("=== gOS boot checks complete ===\n");
 
