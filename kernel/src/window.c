@@ -199,6 +199,27 @@ static int point_in_rect(int64_t px, int64_t py, int64_t rx, int64_t ry, uint64_
     return px >= rx && py >= ry && px < rx + (int64_t)rw && py < ry + (int64_t)rh;
 }
 
+int window_point_hits_any(int64_t px, int64_t py) {
+    for (int i = 0; i < window_count; i++) {
+        struct window *win = &windows[z_order[i]];
+        if (point_in_rect(px, py, win->x, win->y, win->w, win->h + WINDOW_TITLEBAR_HEIGHT)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int window_count_open(void) {
+    return window_count;
+}
+
+int window_at_zorder(int pos) {
+    if (pos < 0 || pos >= window_count) {
+        return -1;
+    }
+    return z_order[pos];
+}
+
 /* Finds the frontmost window whose title bar or body contains the point. */
 static int window_at_point(int64_t px, int64_t py) {
     for (int i = window_count - 1; i >= 0; i--) {
@@ -223,7 +244,11 @@ void window_system_update(void) {
         if (hit != -1) {
             raise_to_front(hit);
             struct window *win = &windows[hit];
-            if (point_in_rect(mx, my, win->x, win->y, win->w, WINDOW_TITLEBAR_HEIGHT)) {
+            int64_t close_x = win->x + (int64_t)win->w - WINDOW_CLOSE_BUTTON_SIZE - WINDOW_CLOSE_BUTTON_MARGIN;
+            int64_t close_y = win->y + WINDOW_CLOSE_BUTTON_MARGIN;
+            if (point_in_rect(mx, my, close_x, close_y, WINDOW_CLOSE_BUTTON_SIZE, WINDOW_CLOSE_BUTTON_SIZE)) {
+                window_close(hit);
+            } else if (point_in_rect(mx, my, win->x, win->y, win->w, WINDOW_TITLEBAR_HEIGHT)) {
                 dragging_window = hit;
                 drag_offset_x = mx - win->x;
                 drag_offset_y = my - win->y;
@@ -292,10 +317,23 @@ static void draw_window(struct window *win) {
     fb_draw_rect_outline(win->x, win->y, win->w, win->h + WINDOW_TITLEBAR_HEIGHT, fb_make_color(0, 0, 0), 2);
 
     /* Title text, clipped to the title bar rect so a long title can never
-     * spill out into the body or past the window's right edge. */
+     * spill out into the body or past the window's right edge, leaving
+     * room on the right for the close button drawn below. */
     fb_draw_string_clipped(win->x + 6, win->y + (WINDOW_TITLEBAR_HEIGHT - FONT_HEIGHT) / 2,
                             win->title, fb_make_color(255, 255, 255), win->titlebar_color,
-                            win->x, win->y, win->w, WINDOW_TITLEBAR_HEIGHT);
+                            win->x, win->y, win->w - WINDOW_CLOSE_BUTTON_SIZE - 2 * WINDOW_CLOSE_BUTTON_MARGIN,
+                            WINDOW_TITLEBAR_HEIGHT);
+
+    /* Milestone 11.2: a small red "X" close button at the top-right of
+     * every title bar, hit-tested in window_system_update(). */
+    {
+        int64_t cx = win->x + (int64_t)win->w - WINDOW_CLOSE_BUTTON_SIZE - WINDOW_CLOSE_BUTTON_MARGIN;
+        int64_t cy = win->y + WINDOW_CLOSE_BUTTON_MARGIN;
+        fb_draw_rect(cx, cy, WINDOW_CLOSE_BUTTON_SIZE, WINDOW_CLOSE_BUTTON_SIZE, fb_make_color(200, 60, 60));
+        fb_draw_rect_outline(cx, cy, WINDOW_CLOSE_BUTTON_SIZE, WINDOW_CLOSE_BUTTON_SIZE, fb_make_color(0, 0, 0), 1);
+        fb_draw_line(cx + 3, cy + 3, cx + WINDOW_CLOSE_BUTTON_SIZE - 4, cy + WINDOW_CLOSE_BUTTON_SIZE - 4, fb_make_color(255, 255, 255));
+        fb_draw_line(cx + WINDOW_CLOSE_BUTTON_SIZE - 4, cy + 3, cx + 3, cy + WINDOW_CLOSE_BUTTON_SIZE - 4, fb_make_color(255, 255, 255));
+    }
 
     for (int i = 0; i < MAX_WIDGETS_PER_WINDOW; i++) {
         struct button *b = &win->buttons[i];

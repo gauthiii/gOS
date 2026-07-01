@@ -8,6 +8,8 @@
 #define MAX_WIDGETS_PER_WINDOW 8
 #define WINDOW_TITLE_MAX 32
 #define TEXTBOX_BUFFER_SIZE 512
+#define WINDOW_CLOSE_BUTTON_SIZE 16
+#define WINDOW_CLOSE_BUTTON_MARGIN 4
 
 typedef void (*button_callback_t)(void);
 
@@ -93,6 +95,20 @@ void window_set_title(int win_index, const char *title);
  * click - used when reusing an already-open window (e.g. the text editor
  * opening a second file while already visible). */
 void window_focus(int win_index);
+
+/* Returns 1 if any current window's title bar or body covers this screen
+ * point, 0 otherwise - used by the desktop launcher (Milestone 11.2) so a
+ * click on a desktop icon that's actually hidden under a window doesn't
+ * fire. */
+int window_point_hits_any(int64_t px, int64_t py);
+
+/* Returns the number of windows currently open. */
+int window_count_open(void);
+
+/* Returns the window index at z-order position `pos` (0 = backmost), or
+ * -1 if out of range - used by the taskbar (Milestone 11.2) to enumerate
+ * open windows without exposing window.c's internal arrays. */
+int window_at_zorder(int pos);
 
 /* Frees a window's slot so it can be reused by a future window_create()
  * call. Does not shift other windows' indices. */

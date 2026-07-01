@@ -1,6 +1,6 @@
 # gOS — Gauthiii's Operating System — Project Plan
 
-**Last updated:** 2026-07-01 (Phase 0 completed — see [phase0.md](phase0.md); Phase 1 completed — see [phase1.md](phase1.md); Phase 2 completed — see [phase2.md](phase2.md); Phase 3 completed — see [phase3.md](phase3.md); Phase 4 completed — see [phase4.md](phase4.md); Phase 5 completed — see [phase5.md](phase5.md); Phase 6 completed — see [phase6.md](phase6.md); Phase 7 completed — see [phase7.md](phase7.md); Phase 8 completed — see [phase8.md](phase8.md); Phase 9 completed — see [phase9.md](phase9.md); Phase 10 completed — see [phase10.md](phase10.md))
+**Last updated:** 2026-07-01 (Phase 0 completed — see [phase0.md](phase0.md); Phase 1 completed — see [phase1.md](phase1.md); Phase 2 completed — see [phase2.md](phase2.md); Phase 3 completed — see [phase3.md](phase3.md); Phase 4 completed — see [phase4.md](phase4.md); Phase 5 completed — see [phase5.md](phase5.md); Phase 6 completed — see [phase6.md](phase6.md); Phase 7 completed — see [phase7.md](phase7.md); Phase 8 completed — see [phase8.md](phase8.md); Phase 9 completed — see [phase9.md](phase9.md); Phase 10 completed — see [phase10.md](phase10.md); Phase 11 completed — see [phase11.md](phase11.md) — **v1.0 reached**)
 
 ## 1. Project Overview
 
@@ -306,20 +306,20 @@
 ### Phase 11 — Polish / Stability
 **Estimated time: 10–20 hours (open-ended — see scope note in §9)**
 
-**Milestone 11.1: Crash resilience**
-- [ ] Audit all pointer-returning functions (`kmalloc`, `fat_read_file`, etc.) for null-check handling at call sites
-- [ ] Add a kernel panic screen (framebuffer red screen + message) instead of silent triple fault on unhandled exceptions
-- [ ] Stress test: rapidly create/delete/rename files and open/close windows for several minutes without a crash
+**Milestone 11.1: Crash resilience** — ✅ Done (see [phase11.md](phase11.md))
+- [x] Audit all pointer-returning functions (`kmalloc`, `fat_read_file`, etc.) for null-check handling at call sites
+- [x] Add a kernel panic screen (framebuffer red screen + message) instead of silent triple fault on unhandled exceptions
+- [x] Stress test: rapidly create/delete/rename files and open/close windows for several minutes without a crash
 
-**Milestone 11.2: UX polish**
-- [ ] Add window close buttons
-- [ ] Add a simple taskbar/dock showing open windows
-- [ ] Add a desktop background and a way to launch the File Manager (icon or menu) instead of it always auto-opening at boot
+**Milestone 11.2: UX polish** — ✅ Done (see [phase11.md](phase11.md))
+- [x] Add window close buttons
+- [x] Add a simple taskbar/dock showing open windows
+- [x] Add a desktop background and a way to launch the File Manager (icon or menu) instead of it always auto-opening at boot
 
-**Milestone 11.3: Documentation and demo**
-- [ ] Write a `README.md` with build/run instructions
-- [ ] Record a short screen capture demoing boot → file manager → create/edit/save/delete flow
-- [ ] Tag a `v1.0` release commit
+**Milestone 11.3: Documentation and demo** — ✅ Done (see [phase11.md](phase11.md))
+- [x] Write a `README.md` with build/run instructions
+- [x] Record a short screen capture demoing boot → file manager → create/edit/save/delete flow
+- [x] Tag a `v1.0` release commit
 
 ---
 
@@ -465,15 +465,15 @@ This assumes steady 5–10 hr/week pace with no major multi-week stalls. Phases 
 | 10 | 10.4 Delete and Rename | Wire Delete button + confirmation | Done | Same reusable dialog, `FM_DIALOG_DELETE_CONFIRM` mode; verified live + independently via `mdir` (deleted `NEWFILE`). |
 | 10 | 10.4 Delete and Rename | Implement rename | Done | New `fat_rename()` in `fat32.c`/`fat32.h`, reusing existing `find_dirent`/`to_83_name` helpers; patches only the 11-byte name field. Real bug found+fixed in dialog rendering (label/textbox overlap) — see phase10.md. |
 | 10 | 10.4 Delete and Rename | Test delete + rename persistence | Done | Verified live + independently via `mdir` (`PERSIST.TXT`→`RENAMED`, same 35-byte size, all other entries untouched). Noted UI limitation: folders can't be selected for Delete/Rename (single click always navigates) — documented, not a bug. |
-| 11 | 11.1 Crash resilience | Null-check audit | Not Started | |
-| 11 | 11.1 Crash resilience | Kernel panic screen | Not Started | |
-| 11 | 11.1 Crash resilience | Stress test create/delete/rename loop | Not Started | |
-| 11 | 11.2 UX polish | Window close buttons | Not Started | |
-| 11 | 11.2 UX polish | Taskbar/dock | Not Started | |
-| 11 | 11.2 UX polish | Desktop background + launcher | Not Started | |
-| 11 | 11.3 Docs and demo | Write README | Not Started | |
-| 11 | 11.3 Docs and demo | Record demo capture | Not Started | |
-| 11 | 11.3 Docs and demo | Tag v1.0 release | Not Started | |
+| 11 | 11.1 Crash resilience | Null-check audit | Done | Reviewed every call site of `kmalloc`/`window_get`/`fat_read_file`/`fat_resolve_path`/`fat_create_*`/`fat_write_file`/`fat_delete_*`/`fat_rename`/`window_create`/`fm_create_window`. No gaps found - consistent explicit-check or `window.c` internal bounds/`in_use` guard pattern used everywhere. |
+| 11 | 11.1 Crash resilience | Kernel panic screen | Done | New `kernel/src/panic.c`/`panic.h`; red full-screen display (exception name, vector, error code, RIP, CR2 if page fault) wired into `idt.c`'s `isr_handler`. New `fb_is_ready()`/`fb_panic_reset_to_real()` helpers in `fb.c`/`fb.h`. Verified live + visually via screendump with a deliberate divide-by-zero test build. |
+| 11 | 11.1 Crash resilience | Stress test create/delete/rename loop | Done | `stress_test()` in `start.c`: 150 file create/write/rename/delete cycles + 300 window create/close cycles, run automatically at boot. Verified live: `Stress test: PASS (150 file cycles, 300 window cycles, no crash)`. Scaled down from literal "several minutes" to a fast bounded equivalent - live interactive command given in phase11.md for a real multi-minute soak test. |
+| 11 | 11.2 UX polish | Window close buttons | Done | Small red "X" top-right of every title bar; hit-tested in `window_system_update()` before drag-start, calls the existing `window_close()`. Verified live + visually. |
+| 11 | 11.2 UX polish | Taskbar/dock | Done | New `kernel/src/taskbar.c`/`taskbar.h`; bar across the bottom listing every open window's title (via new `window_count_open()`/`window_at_zorder()` getters), click-to-focus via existing `window_focus()`. Verified live + visually (raised a backmost window to front). |
+| 11 | 11.2 UX polish | Desktop background + launcher | Done | New `kernel/src/desktop.c`/`desktop.h`; wallpaper + "Files" icon, click launches `fm_create_window()` once (new `window_point_hits_any()` guards against a window occluding the icon). File Manager no longer auto-opens at boot (removed from `start.c`); Windows A/B/C still auto-open unchanged, per explicit user choice. Verified live + visually. |
+| 11 | 11.3 Docs and demo | Write README | Done | Updated for Phase 11 (desktop/taskbar/panic screen/CRUD) with new screenshots. |
+| 11 | 11.3 Docs and demo | Record demo capture | Done | `screenshots/phase11_demo.gif` - animated GIF assembled via `ffmpeg` from real QEMU screendumps spanning boot → desktop → File Manager launch → full CRUD → window close/taskbar focus. |
+| 11 | 11.3 Docs and demo | Tag v1.0 release | Done | `git tag -a v1.0` created locally (not pushed), per explicit user approval, once all milestones were verified. |
 
 ---
 

@@ -9,6 +9,7 @@ static uint8_t fb_red_shift, fb_green_shift, fb_blue_shift;
 
 static uint8_t *draw_target; /* points at fb_addr until a back buffer exists */
 static uint8_t *back_buffer;
+static int fb_ready = 0;
 
 void fb_init(void *address, uint64_t width, uint64_t height, uint64_t pitch, uint16_t bpp,
              uint8_t red_shift, uint8_t green_shift, uint8_t blue_shift) {
@@ -21,6 +22,7 @@ void fb_init(void *address, uint64_t width, uint64_t height, uint64_t pitch, uin
     fb_green_shift = green_shift;
     fb_blue_shift = blue_shift;
     draw_target = fb_addr;
+    fb_ready = 1;
 
     serial_write_string("FB: initialized ");
     serial_write_uint(fb_w);
@@ -32,6 +34,8 @@ void fb_init(void *address, uint64_t width, uint64_t height, uint64_t pitch, uin
     serial_write_uint(fb_pitch);
     serial_write_string("\n");
 }
+
+int fb_is_ready(void) { return fb_ready; }
 
 uint64_t fb_width(void) { return fb_w; }
 uint64_t fb_height(void) { return fb_h; }
@@ -132,4 +136,8 @@ void fb_flip(void) {
     for (uint64_t i = 0; i < words; i++) {
         dst[i] = src[i];
     }
+}
+
+void fb_panic_reset_to_real(void) {
+    draw_target = fb_addr;
 }

@@ -2,11 +2,11 @@
 
 A hobby x86_64 operating system, built completely from scratch: no existing kernel, no existing libc, no existing GUI toolkit. Everything from the UEFI boot handoff to a clickable file manager is hand-written C and x86_64 assembly.
 
-gOS boots via [Limine](https://github.com/limine-bootloader/limine), draws directly to a framebuffer, runs its own windowing system with draggable/overlapping windows and clickable widgets, renders its own bitmap-font text, reads and writes a real FAT32 disk image through a hand-written ATA PIO driver, and has a graphical File Manager with full CRUD: create folders/files, open and edit text files, save with Ctrl+S, delete, and rename — all backed by the real filesystem, not a mock.
+gOS boots via [Limine](https://github.com/limine-bootloader/limine) into a desktop with a background, a taskbar, and a "Files" launcher icon; draws directly to a framebuffer; runs its own windowing system with draggable/overlappable/closable windows; renders its own bitmap-font text; reads and writes a real FAT32 disk image through a hand-written ATA PIO driver; and has a graphical File Manager with full CRUD — create folders/files, open and edit text files, save with Ctrl+S, delete, and rename — all backed by the real filesystem, not a mock. Unhandled CPU exceptions show a red kernel panic screen instead of silently hanging.
 
-Development is tracked as a sequence of phases in [PROJECT_PLAN.md](PROJECT_PLAN.md); each completed phase has its own detailed write-up (`phase0.md` through `phase10.md`) with what was built, how it was tested, and any bugs found along the way.
+Development is tracked as a sequence of phases in [PROJECT_PLAN.md](PROJECT_PLAN.md); each completed phase has its own detailed write-up (`phase0.md` through `phase11.md`) with what was built, how it was tested, and any bugs found along the way.
 
-**Status:** Phases 0–10 complete (toolchain → bootloader → interrupts → memory management → drivers → graphics → windowing → fonts/text input → FAT32 filesystem → file manager UI → CRUD operations). Phase 11 (polish/stability) remains — see [PROJECT_PLAN.md](PROJECT_PLAN.md) for the full roadmap.
+**Status: v1.0 — all 12 phases (0–11) complete.** Toolchain → bootloader → interrupts → memory management → drivers → graphics → windowing → fonts/text input → FAT32 filesystem → file manager UI → CRUD operations → polish/stability. This is the plan's own described v1 finish line — see [PROJECT_PLAN.md](PROJECT_PLAN.md) for the full roadmap and `git tag` for the `v1.0` marker.
 
 ---
 
@@ -22,6 +22,9 @@ Development is tracked as a sequence of phases in [PROJECT_PLAN.md](PROJECT_PLAN
 - A from-scratch FAT32 driver (via a hand-written ATA PIO disk driver) — reads and writes real files/directories, verified against `mtools` on the host
 - A graphical **File Manager** window: browse folders, navigate to arbitrary depth, see files vs. folders visually distinguished, select a file
 - Full **CRUD**: New Folder/New File (via a reusable modal text-input dialog), Delete (with a confirmation dialog), Rename, and a real **Text Editor** — double-click a file to open it, edit with the keyboard, press Ctrl+S to save back to disk, with changes verified to persist across a reboot
+- A **desktop**: wallpaper background, a "Files" launcher icon (the File Manager no longer auto-opens — click to launch it), a **taskbar** listing every open window with click-to-focus, and a close ("X") button on every window
+- A red full-screen **kernel panic display** on any unhandled CPU exception (vector, error code, RIP, and CR2 for page faults), instead of a silent hang
+- An automated boot-time **stress test** (150 file create/write/rename/delete cycles + 300 window create/close cycles) proving the system survives rapid churn without crashing
 
 ---
 
@@ -189,6 +192,38 @@ The rename dialog pre-fills the text box with the file's current name (`PERSIST.
 
 ![Listing after rename](screenshots/phase10_final_04b_after_rename.png)
 
+### Phase 11 — Polish / Stability
+
+**Desktop with taskbar and launcher icon** ([phase11.md](phase11.md), Milestone 11.2)
+The desktop right after boot: a wallpaper background, the "Files" launcher icon (top-left), Windows A/B/C each with a close ("X") button, and a taskbar across the bottom listing all three open windows. Notably, the File Manager is **not** open yet — it no longer auto-opens at boot.
+
+![Desktop with taskbar, no File Manager yet](screenshots/phase11_p11_desktop_initial.png)
+
+**File Manager launched from the desktop icon** ([phase11.md](phase11.md), Milestone 11.2)
+Clicking the "Files" icon launches the File Manager on demand, showing the real, persisted contents of the FAT32 disk from every prior phase's testing. The taskbar now lists 4 entries and the icon shows a small "running" indicator dot.
+
+![File Manager launched via desktop icon](screenshots/phase11_p11_after_launch_fm.png)
+
+**Window closed via its "X" button** ([phase11.md](phase11.md), Milestone 11.2)
+Clicking Window A's close button removes it immediately — the taskbar drops from 3 entries to 2, and the remaining windows are unaffected.
+
+![Window A closed](screenshots/phase11_p11_after_close_a.png)
+
+**Taskbar click-to-focus** ([phase11.md](phase11.md), Milestone 11.2)
+Clicking "Window B"'s taskbar entry raises it to the front of the z-order (drawn on top of Text Editor) and highlights its entry, even though it was the backmost window a moment before.
+
+![Window B focused via taskbar](screenshots/phase11_p11_after_taskbar_focus.png)
+
+**Kernel panic screen** ([phase11.md](phase11.md), Milestone 11.1)
+A deliberately-triggered divide-by-zero shows a full red panic screen with the exception name, vector, error code, and faulting RIP, instead of a silent hang — verified against a real CPU exception, not a mockup.
+
+![Kernel panic screen](screenshots/phase11_panic_screen.png)
+
+**Full demo: boot → desktop → File Manager → CRUD** ([phase11.md](phase11.md), Milestone 11.3)
+An animated GIF assembled from real QEMU screendumps spanning the whole flow — boot, the desktop, launching the File Manager, and the complete Create/Read/Update/Delete cycle.
+
+![Full boot-to-CRUD demo](screenshots/phase11_demo.gif)
+
 ---
 
 ## Project structure
@@ -196,7 +231,7 @@ The rename dialog pre-fills the text box with the file's current name (`PERSIST.
 ```
 boot/               limine.conf (bootloader configuration)
 kernel/
-  include/          kernel headers (fb.h, window.h, fat32.h, fm.h, editor.h, ...)
+  include/          kernel headers (fb.h, window.h, fat32.h, fm.h, editor.h, desktop.h, taskbar.h, panic.h, ...)
   src/               kernel C sources + a few .asm trampolines (ISR entry, GDT/IDT load, CR3 load)
   linker.ld          higher-half kernel linker script
 third_party/
@@ -204,9 +239,9 @@ third_party/
   ovmf/              UEFI firmware images for QEMU (committed directly)
 disk_images/         FAT32 test disk image(s) (gitignored, created by `make disk`)
 build/               compiled kernel + ISO (gitignored)
-screenshots/         milestone screenshots referenced above and in the phase docs
+screenshots/         milestone screenshots (including phase11_demo.gif) referenced above and in the phase docs
 PROJECT_PLAN.md      the full phase-by-phase roadmap and status tracker
-phase0.md ... phase10.md   detailed completion report for each finished phase
+phase0.md ... phase11.md   detailed completion report for each finished phase
 ```
 
 ---
@@ -214,4 +249,4 @@ phase0.md ... phase10.md   detailed completion report for each finished phase
 ## Further reading
 
 - [PROJECT_PLAN.md](PROJECT_PLAN.md) — full project scope, phase breakdown, dependency graph, and status tracker
-- `phase0.md` through `phase10.md` — one detailed write-up per completed phase: what was built, exact commands to reproduce every test, and any real bugs found (with symptom/diagnosis/fix)
+- `phase0.md` through `phase11.md` — one detailed write-up per completed phase: what was built, exact commands to reproduce every test, and any real bugs found (with symptom/diagnosis/fix)

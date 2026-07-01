@@ -1,6 +1,7 @@
 #include <idt.h>
 #include <gdt.h>
 #include <serial.h>
+#include <panic.h>
 #include <stdint.h>
 
 struct idt_entry {
@@ -97,8 +98,8 @@ void isr_handler(struct interrupt_frame *frame) {
     serial_write_string("\nRSP: ");
     serial_write_hex64(frame->rsp);
 
+    uint64_t cr2 = 0;
     if (frame->vector == 14) { /* Page Fault */
-        uint64_t cr2;
         __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
         serial_write_string("\nCR2 (faulting address): ");
         serial_write_hex64(cr2);
@@ -122,9 +123,12 @@ void isr_handler(struct interrupt_frame *frame) {
 
     serial_write_string("\n!!! System halted !!!\n");
 
-    for (;;) {
-        __asm__ volatile ("hlt");
-    }
+    /* Milestone 11.1: show a red full-screen panic display instead of
+     * silently halting with only a serial log - panic_screen() never
+     * returns (it halts internally, whether or not the framebuffer was
+     * ready to draw to). */
+    panic_screen(exception_name(frame->vector), frame->vector, frame->error_code,
+                 frame->rip, frame->vector == 14, cr2);
 }
 
 void idt_init(void) {

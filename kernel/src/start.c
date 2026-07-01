@@ -16,6 +16,8 @@
 #include <ata.h>
 #include <fat32.h>
 #include <fm.h>
+#include <desktop.h>
+#include <taskbar.h>
 
 extern uint8_t __kernel_virt_start[];
 extern uint8_t __kernel_virt_end[];
@@ -66,6 +68,45 @@ static void hcf(void) {
     for (;;) {
         __asm__ volatile ("hlt");
     }
+}
+
+/* Milestone 11.1 stress test: the plan calls for "rapidly create/delete/
+ * rename files and open/close windows for several minutes without a
+ * crash." A literal several-minute run isn't practical for an automated
+ * headless boot-time self-test, so this runs a large, fixed number of
+ * cycles instead (fast - seconds, not minutes) as the automated
+ * equivalent; see phase11.md for the live -display cocoa command used to
+ * additionally soak-test this interactively for real minutes. Must run
+ * after fat32_init() and window_system_init(), and with no other windows
+ * open yet (so window slots are free to cycle through). */
+static void stress_test(void) {
+    serial_write_string("Stress test: running file + window create/delete/rename cycles...\n");
+
+    int file_cycles_ok = 0;
+    int file_ok = 1;
+    for (int i = 0; i < 150; i++) {
+        if (!fat_create_file("STRESS.TXT")) { file_ok = 0; break; }
+        if (!fat_write_file("STRESS.TXT", (const uint8_t *)"x", 1)) { file_ok = 0; break; }
+        if (!fat_rename("STRESS.TXT", "STRESSR.TXT")) { file_ok = 0; break; }
+        if (!fat_delete_file("STRESSR.TXT")) { file_ok = 0; break; }
+        file_cycles_ok++;
+    }
+
+    int win_cycles_ok = 0;
+    int win_ok = 1;
+    for (int i = 0; i < 300; i++) {
+        int w = window_create(0, 0, 50, 50, fb_make_color(1, 1, 1), fb_make_color(1, 1, 1), "S");
+        if (w < 0) { win_ok = 0; break; }
+        window_close(w);
+        win_cycles_ok++;
+    }
+
+    serial_write_string("Stress test: ");
+    serial_write_string((file_ok && win_ok) ? "PASS (" : "FAIL (");
+    serial_write_uint((uint64_t)file_cycles_ok);
+    serial_write_string(" file cycles, ");
+    serial_write_uint((uint64_t)win_cycles_ok);
+    serial_write_string(" window cycles, no crash)\n");
 }
 
 static const char *memmap_type_name(uint64_t type) {
@@ -458,6 +499,7 @@ void _start(void) {
      * seconds via QEMU monitor mouse_move/mouse_button commands - see
      * phase6.md for the exact test procedure. */
     window_system_init();
+    stress_test();
     int win_a = window_create(150, 150, 300, 200, fb_make_color(70, 70, 200), fb_make_color(30, 30, 60), "Window A");
     int win_b = window_create(400, 250, 280, 180, fb_make_color(200, 70, 70), fb_make_color(60, 30, 30), "Window B");
     int win_c = window_create(280, 350, 260, 160, fb_make_color(70, 200, 120), fb_make_color(30, 60, 40), "Text Editor");
@@ -471,19 +513,46 @@ void _start(void) {
     serial_write_uint((uint64_t)win_c);
     serial_write_string(" (1 button on window_a)\n");
 
-    /* Phase 9: File Manager window, backed by the real FAT32 driver from
-     * Phase 8. Placed as a fourth window in the same z-ordered system as
-     * A/B/C above - proves the file manager is a normal window, not a
-     * special-cased overlay. */
-    int win_fm = fm_create_window(120, 60, 420, 260);
-    serial_write_string("File Manager window created: window_fm=");
-    serial_write_uint((uint64_t)win_fm);
-    serial_write_string("\n");
+    /* Milestone 11.2: the File Manager no longer auto-opens at boot - it's
+     * launched on demand by clicking the "Files" desktop icon
+     * (desktop_update()/desktop_render(), kernel/src/desktop.c). Windows
+     * A/B/C above still auto-open unchanged (they're Phase 6/7 regression
+     * demos, not the File Manager). A taskbar across the bottom of the
+     * screen (kernel/src/taskbar.c) lists whatever windows are currently
+     * open and lets you click an entry to bring it to front. */
+    serial_write_string("Desktop ready - click the \"Files\" icon to launch the File Manager\n");
 
-    for (int frame = 0; frame < 500; frame++) {
+#if defined(GOS_TEST_PANIC_SCREEN)
+    /* Milestone 11.1 visual test: deliberately trigger a divide-by-zero
+     * after the desktop/window system is fully up, so the panic screen's
+     * red full-screen display can be screendumped over a realistic
+     * graphical scene instead of a blank early-boot frame. */
+    for (int frame = 0; frame < 20; frame++) {
         fb_clear(fb_make_color(15, 15, 15));
         window_system_update();
+        taskbar_update();
+        desktop_update();
+        desktop_render();
         window_composite();
+        taskbar_render();
+        fb_flip();
+        sleep_ms(50);
+    }
+    serial_write_string("TEST: deliberately triggering divide-by-zero to show the panic screen...\n");
+    {
+        volatile int a = 10, b = 0;
+        volatile int c = a / b;
+        (void)c;
+    }
+#endif
+
+    for (int frame = 0; frame < 500; frame++) {
+        window_system_update();
+        taskbar_update();
+        desktop_update();
+        desktop_render();
+        window_composite();
+        taskbar_render();
         fb_flip();
         sleep_ms(50);
     }
