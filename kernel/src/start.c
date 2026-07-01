@@ -13,6 +13,8 @@
 #include <mouse.h>
 #include <window.h>
 #include <font.h>
+#include <ata.h>
+#include <fat32.h>
 
 extern uint8_t __kernel_virt_start[];
 extern uint8_t __kernel_virt_end[];
@@ -217,6 +219,150 @@ void _start(void) {
     }
     serial_write_string("TEST: keyboard test complete\n");
 #endif
+
+    /* Milestone 8.1: bring up the ATA PIO driver and read sector 0 of the
+     * attached disk, logging its boot-signature bytes and a hex dump of
+     * the first 16 bytes to serial for verification. */
+    ata_init();
+    {
+        static uint8_t sector0[ATA_SECTOR_SIZE];
+        if (!ata_read_sector(0, sector0)) {
+            serial_write_string("ATA: PANIC - failed to read sector 0\n");
+        } else {
+            serial_write_string("ATA: sector 0 read OK. First 16 bytes: ");
+            for (int i = 0; i < 16; i++) {
+                serial_write_hex64(sector0[i]);
+                serial_write_string(" ");
+            }
+            serial_write_string("\nATA: boot signature (bytes 510-511): ");
+            serial_write_hex64(sector0[510]);
+            serial_write_string(" ");
+            serial_write_hex64(sector0[511]);
+            serial_write_string(sector0[510] == 0x55 && sector0[511] == 0xAA ? " (valid 0x55AA)\n" : " (INVALID)\n");
+        }
+    }
+
+    /* Milestone 8.2: parse the FAT32 BPB, list the root directory and a
+     * nested subdirectory, and read a known host-created file back to
+     * verify byte-for-byte correctness. */
+    if (fat32_init()) {
+        struct fat_dirent entries[FAT32_MAX_DIRENTS];
+        int count = fat_list_dir(fat32_root_cluster(), entries, FAT32_MAX_DIRENTS);
+        serial_write_string("FAT32: root directory (");
+        serial_write_uint((uint64_t)count);
+        serial_write_string(" entries):\n");
+        for (int i = 0; i < count; i++) {
+            serial_write_string("  ");
+            serial_write_string(entries[i].name);
+            serial_write_string((entries[i].attr & FAT32_ATTR_DIRECTORY) ? " <DIR>" : "");
+            if (!(entries[i].attr & FAT32_ATTR_DIRECTORY)) {
+                serial_write_string(" size=");
+                serial_write_uint(entries[i].size);
+            }
+            serial_write_string("\n");
+        }
+
+        static uint8_t file_buf[512];
+        int64_t n = fat_read_file("HOSTFILE.TXT", file_buf, sizeof(file_buf) - 1);
+        if (n < 0) {
+            serial_write_string("FAT32: PANIC - failed to read HOSTFILE.TXT\n");
+        } else {
+            file_buf[n] = '\0';
+            serial_write_string("FAT32: read HOSTFILE.TXT (");
+            serial_write_uint((uint64_t)n);
+            serial_write_string(" bytes): \"");
+            serial_write_string((const char *)file_buf);
+            serial_write_string("\"\n");
+        }
+
+        n = fat_read_file("TESTDIR/NESTED.TXT", file_buf, sizeof(file_buf) - 1);
+        if (n < 0) {
+            serial_write_string("FAT32: PANIC - failed to read TESTDIR/NESTED.TXT\n");
+        } else {
+            file_buf[n] = '\0';
+            serial_write_string("FAT32: read TESTDIR/NESTED.TXT (");
+            serial_write_uint((uint64_t)n);
+            serial_write_string(" bytes): \"");
+            serial_write_string((const char *)file_buf);
+            serial_write_string("\"\n");
+        }
+
+        /* Milestone 8.3: write support. PERSIST.TXT is deliberately never
+         * deleted - on the first boot against a fresh disk image,
+         * fat_create_file succeeds and the content is written; on any
+         * later boot against the SAME (unreformatted) disk image,
+         * fat_create_file correctly FAILS (already exists) while the
+         * read immediately after still returns the exact content written
+         * by a PRIOR boot - that is the persistence-across-reboot proof,
+         * verified without needing any special two-phase test harness. */
+        int created = fat_create_file("PERSIST.TXT");
+        serial_write_string("FAT32: fat_create_file(PERSIST.TXT) = ");
+        serial_write_string(created ? "1 (created new)" : "0 (already exists)");
+        serial_write_string("\n");
+        if (created) {
+            const char *msg = "This file persists across reboots!";
+            int wrote = fat_write_file("PERSIST.TXT", (const uint8_t *)msg, 35);
+            serial_write_string("FAT32: fat_write_file(PERSIST.TXT) = ");
+            serial_write_string(wrote ? "1 (OK)" : "0 (FAILED)");
+            serial_write_string("\n");
+        }
+        n = fat_read_file("PERSIST.TXT", file_buf, sizeof(file_buf) - 1);
+        if (n < 0) {
+            serial_write_string("FAT32: PANIC - failed to read PERSIST.TXT\n");
+        } else {
+            file_buf[n] = '\0';
+            serial_write_string("FAT32: read PERSIST.TXT (");
+            serial_write_uint((uint64_t)n);
+            serial_write_string(" bytes): \"");
+            serial_write_string((const char *)file_buf);
+            serial_write_string("\"\n");
+        }
+
+        /* TEMP.TXT and TEMPDIR are created and deleted every boot, proving
+         * create/write/delete for both files and directories work as a
+         * self-contained, repeatable cycle (unlike PERSIST.TXT above,
+         * these must NOT accumulate leftover state run after run). */
+        if (fat_create_file("TEMP.TXT")) {
+            const char *msg2 = "temporary";
+            fat_write_file("TEMP.TXT", (const uint8_t *)msg2, 9);
+            n = fat_read_file("TEMP.TXT", file_buf, sizeof(file_buf) - 1);
+            file_buf[n < 0 ? 0 : n] = '\0';
+            serial_write_string("FAT32: TEMP.TXT created+written+read: \"");
+            serial_write_string((const char *)file_buf);
+            serial_write_string("\"\n");
+        }
+        int deleted_file = fat_delete_file("TEMP.TXT");
+        serial_write_string("FAT32: fat_delete_file(TEMP.TXT) = ");
+        serial_write_string(deleted_file ? "1 (OK)" : "0 (FAILED)");
+        serial_write_string("\n");
+        struct fat_dirent check;
+        int still_there = fat_resolve_path("TEMP.TXT", &check);
+        serial_write_string("FAT32: TEMP.TXT still resolvable after delete = ");
+        serial_write_string(still_there ? "1 (BUG)" : "0 (correctly gone)");
+        serial_write_string("\n");
+
+        if (fat_create_dir("TEMPDIR")) {
+            serial_write_string("FAT32: fat_create_dir(TEMPDIR) = 1 (OK)\n");
+            if (fat_create_file("TEMPDIR/INNER.TXT")) {
+                const char *msg3 = "nested write test";
+                fat_write_file("TEMPDIR/INNER.TXT", (const uint8_t *)msg3, 18);
+                n = fat_read_file("TEMPDIR/INNER.TXT", file_buf, sizeof(file_buf) - 1);
+                file_buf[n < 0 ? 0 : n] = '\0';
+                serial_write_string("FAT32: TEMPDIR/INNER.TXT created+written+read: \"");
+                serial_write_string((const char *)file_buf);
+                serial_write_string("\"\n");
+            }
+            int del_inner = fat_delete_file("TEMPDIR/INNER.TXT");
+            int del_dir = fat_delete_dir("TEMPDIR");
+            serial_write_string("FAT32: cleanup - delete INNER.TXT=");
+            serial_write_string(del_inner ? "1" : "0");
+            serial_write_string(" delete TEMPDIR=");
+            serial_write_string(del_dir ? "1" : "0");
+            serial_write_string("\n");
+        }
+    } else {
+        serial_write_string("FAT32: PANIC - not a valid FAT32 filesystem\n");
+    }
 
     fb_init(fb->address, fb->width, fb->height, fb->pitch, fb->bpp,
             fb->red_mask_shift, fb->green_mask_shift, fb->blue_mask_shift);

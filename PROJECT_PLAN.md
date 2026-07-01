@@ -1,6 +1,6 @@
 # gOS — Gauthiii's Operating System — Project Plan
 
-**Last updated:** 2026-07-01 (Phase 0 completed — see [phase0.md](phase0.md); Phase 1 completed — see [phase1.md](phase1.md); Phase 2 completed — see [phase2.md](phase2.md); Phase 3 completed — see [phase3.md](phase3.md); Phase 4 completed — see [phase4.md](phase4.md); Phase 5 completed — see [phase5.md](phase5.md); Phase 6 completed — see [phase6.md](phase6.md); Phase 7 completed — see [phase7.md](phase7.md))
+**Last updated:** 2026-07-01 (Phase 0 completed — see [phase0.md](phase0.md); Phase 1 completed — see [phase1.md](phase1.md); Phase 2 completed — see [phase2.md](phase2.md); Phase 3 completed — see [phase3.md](phase3.md); Phase 4 completed — see [phase4.md](phase4.md); Phase 5 completed — see [phase5.md](phase5.md); Phase 6 completed — see [phase6.md](phase6.md); Phase 7 completed — see [phase7.md](phase7.md); Phase 8 completed — see [phase8.md](phase8.md))
 
 ## 1. Project Overview
 
@@ -231,25 +231,25 @@
 ### Phase 8 — Filesystem (FAT32)
 **Estimated time: 16–22 hours (~3 weeks)**
 
-**Milestone 8.1: Disk/block device access**
-- [ ] Decide disk access path: ATA PIO driver (simplest, works in QEMU) — **recommended** over AHCI for v1 scope
-- [ ] Implement `ata_read_sector(lba, buffer)` and `ata_write_sector(lba, buffer)` via port I/O
-- [ ] Test: read sector 0 (MBR/GPT) of the disk image and log the first bytes/signature over serial to confirm correctness
+**Milestone 8.1: Disk/block device access** — ✅ Done (see [phase8.md](phase8.md))
+- [x] Decide disk access path: ATA PIO driver (simplest, works in QEMU) — used the plan's own recommendation over AHCI
+- [x] Implement `ata_read_sector(lba, buffer)` and `ata_write_sector(lba, buffer)` via port I/O
+- [x] Test: read sector 0 of the disk image and log the first bytes/signature over serial to confirm correctness — verified live, valid `0x55AA` boot signature and correct FAT boot-sector jump bytes
 
-**Milestone 8.2: FAT32 read support**
-- [ ] Parse the FAT32 BIOS Parameter Block (BPB) from the boot sector
-- [ ] Implement cluster-to-LBA translation and FAT table traversal (cluster chain following)
-- [ ] Implement root directory listing: parse 32-byte directory entries, handle 8.3 names first (defer VFAT long filenames as a stretch goal)
-- [ ] Implement `fat_read_file(path, buffer)` — walk directory entries by path, follow cluster chain, read data
-- [ ] Test: create a disk image on the host with `mtools`/`mkfs.fat`, populate it with a known test file, boot gOS, and confirm it reads the exact same bytes back (verify via serial hex dump or checksum)
+**Milestone 8.2: FAT32 read support** — ✅ Done (see [phase8.md](phase8.md))
+- [x] Parse the FAT32 BIOS Parameter Block (BPB) from the boot sector
+- [x] Implement cluster-to-LBA translation and FAT table traversal (cluster chain following)
+- [x] Implement root directory listing: parse 32-byte directory entries, handle 8.3 names first (VFAT long filenames deferred, as the plan itself allows)
+- [x] Implement `fat_read_file(path, buffer)` — walk directory entries by path (including nested subdirectories), follow cluster chain, read data
+- [x] Test: created a disk image on the host with `mtools`, populated it with known test files (root-level and nested), booted gOS, confirmed byte-for-byte correct reads over serial
 
-**Milestone 8.3: FAT32 write support**
-- [ ] Implement free-cluster scanning (find unused clusters in the FAT)
-- [ ] Implement `fat_create_file(path)` — allocate a directory entry + first cluster
-- [ ] Implement `fat_write_file(path, buffer, size)` — write data, extend cluster chain as needed, update file size in directory entry
-- [ ] Implement `fat_delete_file(path)` — mark directory entry deleted, free its cluster chain in the FAT
-- [ ] Implement `fat_create_dir(path)` / `fat_delete_dir(path)`
-- [ ] Test: from gOS, create a file, write text to it, reboot into QEMU, read it back and confirm persistence. Also mount the image on the host afterward to confirm it's a valid, uncorrupted FAT32 filesystem.
+**Milestone 8.3: FAT32 write support** — ✅ Done (see [phase8.md](phase8.md))
+- [x] Implement free-cluster scanning (find unused clusters in the FAT)
+- [x] Implement `fat_create_file(path)` — allocate a directory entry + first cluster
+- [x] Implement `fat_write_file(path, buffer, size)` — write data, extend/truncate cluster chain as needed, update file size in directory entry
+- [x] Implement `fat_delete_file(path)` — mark directory entry deleted, free its cluster chain in the FAT
+- [x] Implement `fat_create_dir(path)` / `fat_delete_dir(path)` (delete refuses non-empty directories)
+- [x] Test: from gOS, created a file, wrote text to it, rebooted into QEMU against the *same* disk image, read it back and confirmed persistence (`fat_create_file` correctly reported "already exists" on the second boot while the read still returned first-boot content). Also verified via host-side `mtools` (`mdir`/`mtype`) that the disk image was fully valid and uncorrupted after writes — tested against a disposable scratch copy first, per the plan's own explicit safety guidance, before confirming the same behavior against the standard disk image.
 
 **Dependency note:** 8.3 write support is the single highest-risk milestone for silent data/filesystem corruption. Test against a disk image *copy*, not your only golden image, until write support is proven solid.
 
@@ -429,20 +429,20 @@ This assumes steady 5–10 hr/week pace with no major multi-week stalls. Phases 
 | 7 | 7.3 Keyboard input to window | Implement text buffer widget | Done | 512-byte per-window buffer; verified live via simulated typing ("hello") appearing correctly in the Text Editor window. Screenshot saved to `screenshots/phase7_7.3_typed_hello.png`. |
 | 7 | 7.3 Keyboard input to window | Implement blinking text cursor | Done | Ticks-based blink (0.5s on/off at the Phase 4 100Hz timer rate); visible as `_` in both saved screenshots. |
 | 7 | 7.3 Keyboard input to window | Test typing into text box | Done | Verified backspace (typed "gosx", backspace removed the 'x', leaving "gos") and Enter/newline + shifted-character input ('@') via raw PPM pixel-level inspection, not just a visual glance. Screenshot saved to `screenshots/phase7_7.3_backspace_enter.png`. |
-| 8 | 8.1 Disk/block access | Implement ATA PIO read_sector | Not Started | |
-| 8 | 8.1 Disk/block access | Implement ATA PIO write_sector | Not Started | |
-| 8 | 8.1 Disk/block access | Test read sector 0, log signature | Not Started | |
-| 8 | 8.2 FAT32 read support | Parse FAT32 BPB | Not Started | |
-| 8 | 8.2 FAT32 read support | Cluster-to-LBA + FAT chain traversal | Not Started | |
-| 8 | 8.2 FAT32 read support | Root directory listing (8.3 names) | Not Started | |
-| 8 | 8.2 FAT32 read support | Implement fat_read_file | Not Started | |
-| 8 | 8.2 FAT32 read support | Test read known file, verify bytes | Not Started | |
-| 8 | 8.3 FAT32 write support | Free-cluster scanning | Not Started | |
-| 8 | 8.3 FAT32 write support | Implement fat_create_file | Not Started | |
-| 8 | 8.3 FAT32 write support | Implement fat_write_file | Not Started | |
-| 8 | 8.3 FAT32 write support | Implement fat_delete_file | Not Started | |
-| 8 | 8.3 FAT32 write support | Implement fat_create_dir/fat_delete_dir | Not Started | |
-| 8 | 8.3 FAT32 write support | Test create/write/reboot/read persistence | Not Started | |
+| 8 | 8.1 Disk/block access | Implement ATA PIO read_sector | Done | `kernel/src/ata.c` — primary master, ports 0x1F0-0x1F7/0x3F6, polling PIO. |
+| 8 | 8.1 Disk/block access | Implement ATA PIO write_sector | Done | Includes cache-flush command (0xE7) after each write, per OSDev Wiki guidance. |
+| 8 | 8.1 Disk/block access | Test read sector 0, log signature | Done | Verified live: valid `0x55AA` signature, correct `0xEB 0x58 0x90` FAT jump instruction. |
+| 8 | 8.2 FAT32 read support | Parse FAT32 BPB | Done | `kernel/src/fat32.c` — bytes/sector, sectors/cluster, FAT geometry, root cluster all verified live against known values. |
+| 8 | 8.2 FAT32 read support | Cluster-to-LBA + FAT chain traversal | Done | Standard `first_data_sector + (cluster-2)*sectors_per_cluster` formula; FAT entries read as 4-byte (28-bit) values. |
+| 8 | 8.2 FAT32 read support | Root directory listing (8.3 names) | Done | Verified live: listing exactly matched host-side `mdir` output (`HOSTFILE.TXT size=53`, `TESTDIR <DIR>`). |
+| 8 | 8.2 FAT32 read support | Implement fat_read_file | Done | Supports nested paths (`TESTDIR/NESTED.TXT`), not just root-level files. |
+| 8 | 8.2 FAT32 read support | Test read known file, verify bytes | Done | Verified live: both a root file and a nested file read back byte-for-byte identical to the host-written originals. |
+| 8 | 8.3 FAT32 write support | Free-cluster scanning | Done | `fat_alloc_cluster()` scans the FAT linearly from cluster 2; adequate for v1 disk sizes. |
+| 8 | 8.3 FAT32 write support | Implement fat_create_file | Done | Allocates 1 initial cluster, zeroes it, writes an 8.3-formatted directory entry. |
+| 8 | 8.3 FAT32 write support | Implement fat_write_file | Done | Grows or truncates the cluster chain to fit the new size; patches the directory entry's size/first-cluster fields in place. |
+| 8 | 8.3 FAT32 write support | Implement fat_delete_file | Done | Frees the full cluster chain, marks the directory entry `0xE5`. |
+| 8 | 8.3 FAT32 write support | Implement fat_create_dir/fat_delete_dir | Done | Create writes proper `.`/`..` entries; delete refuses non-empty directories (only `.`/`..` may remain). |
+| 8 | 8.3 FAT32 write support | Test create/write/reboot/read persistence | Done | Verified live across two separate QEMU boots against the same disk image (create→write→read, then reboot→confirm "already exists"→read same content), plus independent host-side `mtools` verification of on-disk integrity (no corruption to unrelated files/directories). Tested against a disposable scratch copy first, per the plan's own risk guidance. |
 | 9 | 9.1 File manager shell | Create File Manager window | Not Started | |
 | 9 | 9.1 File manager shell | List root dir entries as rows | Not Started | |
 | 9 | 9.1 File manager shell | Distinguish folders vs files visually | Not Started | |

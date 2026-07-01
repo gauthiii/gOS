@@ -13,6 +13,7 @@ OVMF_DIR    := third_party/ovmf
 
 KERNEL_ELF  := $(BUILD_DIR)/gos.elf
 ISO_IMAGE   := $(BUILD_DIR)/gos.iso
+DISK_IMG    := disk_images/gos_disk.img
 
 CFLAGS := -g -O0 -Wall -Wextra \
           -ffreestanding -fno-stack-protector -fno-stack-check \
@@ -28,7 +29,7 @@ ASM_SOURCES := $(shell find $(KERNEL_DIR)/src -name '*.asm' 2>/dev/null)
 OBJS := $(C_SOURCES:$(KERNEL_DIR)/src/%.c=$(BUILD_DIR)/obj/%.c.o) \
         $(ASM_SOURCES:$(KERNEL_DIR)/src/%.asm=$(BUILD_DIR)/obj/%.asm.o)
 
-.PHONY: all build iso run debug clean
+.PHONY: all build iso run debug clean disk
 
 all: build
 
@@ -61,24 +62,42 @@ iso: build
 		$(ISO_DIR) -o $(ISO_IMAGE)
 	$(LIMINE_DIR)/limine bios-install $(ISO_IMAGE)
 
-run: iso
+# FAT32-formatted disk image for Phase 8 filesystem work. Created once via
+# mtools (mformat); NOT recreated automatically on subsequent `make disk` or
+# `make run` calls once it exists, since Phase 8.3's persistence tests
+# specifically depend on data surviving across reboots/rebuilds. Delete it
+# manually (rm $(DISK_IMG)) to force a fresh, empty filesystem.
+disk: $(DISK_IMG)
+
+$(DISK_IMG):
+	@mkdir -p disk_images
+	truncate -s 64M $(DISK_IMG)
+	mformat -F -i $(DISK_IMG) -v GOSDISK ::
+
+run: iso disk
 	qemu-system-x86_64 \
 		-M q35 -m 256M \
 		-drive if=pflash,format=raw,unit=0,file=$(OVMF_DIR)/OVMF_CODE.fd,readonly=on \
 		-drive if=pflash,format=raw,unit=1,file=$(BUILD_DIR)/OVMF_VARS.fd \
 		-cdrom $(ISO_IMAGE) \
+		-device piix3-ide,id=ide \
+		-drive id=gosdisk,file=$(DISK_IMG),if=none,format=raw \
+		-device ide-hd,drive=gosdisk,bus=ide.0 \
 		-serial stdio
 
 $(BUILD_DIR)/OVMF_VARS.fd: $(OVMF_DIR)/OVMF_VARS.fd
 	@mkdir -p $(BUILD_DIR)
 	cp $< $@
 
-debug: iso $(BUILD_DIR)/OVMF_VARS.fd
+debug: iso $(BUILD_DIR)/OVMF_VARS.fd disk
 	qemu-system-x86_64 \
 		-M q35 -m 256M \
 		-drive if=pflash,format=raw,unit=0,file=$(OVMF_DIR)/OVMF_CODE.fd,readonly=on \
 		-drive if=pflash,format=raw,unit=1,file=$(BUILD_DIR)/OVMF_VARS.fd \
 		-cdrom $(ISO_IMAGE) \
+		-device piix3-ide,id=ide \
+		-drive id=gosdisk,file=$(DISK_IMG),if=none,format=raw \
+		-device ide-hd,drive=gosdisk,bus=ide.0 \
 		-serial stdio -s -S
 
 clean:

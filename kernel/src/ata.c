@@ -1,0 +1,120 @@
+#include <ata.h>
+#include <serial.h>
+
+#define ATA_PRIMARY_DATA        0x1F0
+#define ATA_PRIMARY_ERROR       0x1F1
+#define ATA_PRIMARY_SECCOUNT    0x1F2
+#define ATA_PRIMARY_LBA_LOW     0x1F3
+#define ATA_PRIMARY_LBA_MID     0x1F4
+#define ATA_PRIMARY_LBA_HIGH    0x1F5
+#define ATA_PRIMARY_DRIVE_HEAD  0x1F6
+#define ATA_PRIMARY_STATUS      0x1F7
+#define ATA_PRIMARY_COMMAND     0x1F7
+#define ATA_PRIMARY_CONTROL     0x3F6
+
+#define ATA_STATUS_ERR  0x01
+#define ATA_STATUS_DRQ  0x08
+#define ATA_STATUS_SRV  0x10
+#define ATA_STATUS_DF   0x20
+#define ATA_STATUS_RDY  0x40
+#define ATA_STATUS_BSY  0x80
+
+#define ATA_CMD_READ_SECTORS  0x20
+#define ATA_CMD_WRITE_SECTORS 0x30
+#define ATA_CMD_CACHE_FLUSH   0xE7
+
+static inline void outb(uint16_t port, uint8_t val) {
+    __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
+}
+
+static inline uint8_t inb(uint16_t port) {
+    uint8_t ret;
+    __asm__ volatile ("inb %1, %0" : "=a"(ret) : "Nd"(port));
+    return ret;
+}
+
+static inline void outsw(uint16_t port, const uint16_t *buf, int count) {
+    __asm__ volatile ("rep outsw" : "+S"(buf), "+c"(count) : "d"(port));
+}
+
+static inline void insw(uint16_t port, uint16_t *buf, int count) {
+    __asm__ volatile ("rep insw" : "+D"(buf), "+c"(count) : "d"(port) : "memory");
+}
+
+static void io_wait(void) {
+    /* Reading the (unused) alternate status port is the standard ~400ns
+     * delay idiom for ATA PIO, per the OSDev Wiki. */
+    inb(ATA_PRIMARY_CONTROL);
+    inb(ATA_PRIMARY_CONTROL);
+    inb(ATA_PRIMARY_CONTROL);
+    inb(ATA_PRIMARY_CONTROL);
+}
+
+static int ata_wait_not_busy(void) {
+    for (int timeout = 100000; timeout > 0; timeout--) {
+        uint8_t status = inb(ATA_PRIMARY_STATUS);
+        if (!(status & ATA_STATUS_BSY)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int ata_wait_drq(void) {
+    for (int timeout = 100000; timeout > 0; timeout--) {
+        uint8_t status = inb(ATA_PRIMARY_STATUS);
+        if (status & ATA_STATUS_ERR) {
+            return 0;
+        }
+        if (status & ATA_STATUS_DRQ) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void ata_init(void) {
+    io_wait();
+    serial_write_string("ATA: primary master initialized (PIO, ports 0x1F0-0x1F7/0x3F6)\n");
+}
+
+static void ata_setup_lba(uint32_t lba) {
+    outb(ATA_PRIMARY_DRIVE_HEAD, 0xE0 | ((lba >> 24) & 0x0F));
+    outb(ATA_PRIMARY_SECCOUNT, 1);
+    outb(ATA_PRIMARY_LBA_LOW, (uint8_t)(lba & 0xFF));
+    outb(ATA_PRIMARY_LBA_MID, (uint8_t)((lba >> 8) & 0xFF));
+    outb(ATA_PRIMARY_LBA_HIGH, (uint8_t)((lba >> 16) & 0xFF));
+}
+
+int ata_read_sector(uint32_t lba, uint8_t *buffer) {
+    if (!ata_wait_not_busy()) {
+        return 0;
+    }
+    ata_setup_lba(lba);
+    outb(ATA_PRIMARY_COMMAND, ATA_CMD_READ_SECTORS);
+
+    if (!ata_wait_drq()) {
+        return 0;
+    }
+    insw(ATA_PRIMARY_DATA, (uint16_t *)buffer, ATA_SECTOR_SIZE / 2);
+    return 1;
+}
+
+int ata_write_sector(uint32_t lba, const uint8_t *buffer) {
+    if (!ata_wait_not_busy()) {
+        return 0;
+    }
+    ata_setup_lba(lba);
+    outb(ATA_PRIMARY_COMMAND, ATA_CMD_WRITE_SECTORS);
+
+    if (!ata_wait_drq()) {
+        return 0;
+    }
+    outsw(ATA_PRIMARY_DATA, (const uint16_t *)buffer, ATA_SECTOR_SIZE / 2);
+
+    outb(ATA_PRIMARY_COMMAND, ATA_CMD_CACHE_FLUSH);
+    if (!ata_wait_not_busy()) {
+        return 0;
+    }
+    return 1;
+}
