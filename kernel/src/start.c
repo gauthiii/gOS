@@ -10,6 +10,8 @@
 #include <heap.h>
 #include <keyboard.h>
 #include <fb.h>
+#include <mouse.h>
+#include <window.h>
 
 extern uint8_t __kernel_virt_start[];
 extern uint8_t __kernel_virt_end[];
@@ -46,6 +48,15 @@ static volatile struct limine_kernel_address_request kernel_address_request = {
     .id = LIMINE_KERNEL_ADDRESS_REQUEST,
     .revision = 0
 };
+
+static uint64_t test_button_click_count = 0;
+
+static void on_test_button_click(void) {
+    test_button_click_count++;
+    serial_write_string("Button clicked! (click count=");
+    serial_write_uint(test_button_click_count);
+    serial_write_string(")\n");
+}
 
 static void hcf(void) {
     for (;;) {
@@ -247,6 +258,68 @@ void _start(void) {
         sleep_ms(50);
     }
     serial_write_string("FB: bouncing-rectangle animation complete (40 frames flipped)\n");
+
+    mouse_init();
+
+    /* Milestone 6.1 live test: redraw the cursor at its current tracked
+     * position for ~5 seconds (100 frames @ 50ms), logging whenever it
+     * moves. Real movement is injected externally via the QEMU monitor's
+     * `mouse_move`/`mouse_button` commands during this window - see
+     * phase6.md for the exact test procedure. */
+    {
+        int64_t last_x = -1, last_y = -1;
+        uint8_t last_buttons = 0xFF;
+        for (int frame = 0; frame < 100; frame++) {
+            fb_clear(fb_make_color(20, 20, 20));
+            mouse_draw_cursor();
+            fb_flip();
+
+            if (mouse_x() != last_x || mouse_y() != last_y || mouse_buttons() != last_buttons) {
+                last_x = mouse_x();
+                last_y = mouse_y();
+                last_buttons = mouse_buttons();
+                serial_write_string("Mouse: x=");
+                serial_write_uint((uint64_t)last_x);
+                serial_write_string(" y=");
+                serial_write_uint((uint64_t)last_y);
+                serial_write_string(" buttons=");
+                serial_write_hex64(last_buttons);
+                serial_write_string("\n");
+            }
+            sleep_ms(50);
+        }
+    }
+    serial_write_string("Mouse test window complete\n");
+
+    /* Milestones 6.2/6.3/6.4: two overlapping windows (proving z-order and
+     * click-to-focus), one draggable by its title bar, one with a button
+     * (proving hit-testing/dispatch). Three windows are created (matching
+     * the plan's explicit Milestone 6.3 test requirement) so click-to-focus
+     * exercises reordering a window out of the middle/back of the z-order,
+     * not just a trivial two-element swap. Driven interactively for ~10
+     * seconds via QEMU monitor mouse_move/mouse_button commands - see
+     * phase6.md for the exact test procedure. */
+    window_system_init();
+    int win_a = window_create(150, 150, 300, 200, fb_make_color(70, 70, 200), fb_make_color(30, 30, 60));
+    int win_b = window_create(400, 250, 280, 180, fb_make_color(200, 70, 70), fb_make_color(60, 30, 30));
+    int win_c = window_create(280, 350, 260, 160, fb_make_color(70, 200, 120), fb_make_color(30, 60, 40));
+    window_add_button(win_a, 20, 20, 120, 30, fb_make_color(80, 200, 80), on_test_button_click);
+    serial_write_string("Window system initialized: window_a=");
+    serial_write_uint((uint64_t)win_a);
+    serial_write_string(" window_b=");
+    serial_write_uint((uint64_t)win_b);
+    serial_write_string(" window_c=");
+    serial_write_uint((uint64_t)win_c);
+    serial_write_string(" (1 button on window_a)\n");
+
+    for (int frame = 0; frame < 200; frame++) {
+        fb_clear(fb_make_color(15, 15, 15));
+        window_system_update();
+        window_composite();
+        fb_flip();
+        sleep_ms(50);
+    }
+    serial_write_string("Window system test loop complete\n");
 
     serial_write_string("=== gOS boot checks complete ===\n");
 

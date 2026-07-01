@@ -1,6 +1,6 @@
 # gOS — Gauthiii's Operating System — Project Plan
 
-**Last updated:** 2026-07-01 (Phase 0 completed — see [phase0.md](phase0.md); Phase 1 completed — see [phase1.md](phase1.md); Phase 2 completed — see [phase2.md](phase2.md); Phase 3 completed — see [phase3.md](phase3.md); Phase 4 completed — see [phase4.md](phase4.md); Phase 5 completed — see [phase5.md](phase5.md))
+**Last updated:** 2026-07-01 (Phase 0 completed — see [phase0.md](phase0.md); Phase 1 completed — see [phase1.md](phase1.md); Phase 2 completed — see [phase2.md](phase2.md); Phase 3 completed — see [phase3.md](phase3.md); Phase 4 completed — see [phase4.md](phase4.md); Phase 5 completed — see [phase5.md](phase5.md); Phase 6 completed — see [phase6.md](phase6.md))
 
 ## 1. Project Overview
 
@@ -178,27 +178,27 @@
 ### Phase 6 — Windowing / Compositor
 **Estimated time: 20–30 hours (~3.5–4 weeks)**
 
-**Milestone 6.1: Mouse input works (PS/2 mouse)**
-- [ ] Enable the PS/2 auxiliary (mouse) port and IRQ12
-- [ ] Parse 3-byte PS/2 mouse packets (dx, dy, button state)
-- [ ] Track and clamp a global cursor `(x, y)` position; draw a simple cursor sprite/rect at that position each frame
+**Milestone 6.1: Mouse input works (PS/2 mouse)** — ✅ Done (see [phase6.md](phase6.md))
+- [x] Enable the PS/2 auxiliary (mouse) port and IRQ12
+- [x] Parse 3-byte PS/2 mouse packets (dx, dy, button state)
+- [x] Track and clamp a global cursor `(x, y)` position; draw a simple cursor sprite/rect at that position each frame
 
-**Milestone 6.2: Single window can be drawn and moved**
-- [ ] Define a `struct window { x, y, w, h, title, back_buffer, ... }`
-- [ ] Implement rendering: title bar rect + body rect + border, blitted into the framebuffer back buffer
-- [ ] Implement drag: on mouse-down inside title bar, track offset; on mouse-move while dragging, update window x/y; on mouse-up, stop dragging
-- [ ] Test: spawn one window, drag it around the screen with the mouse, confirm it tracks smoothly
+**Milestone 6.2: Single window can be drawn and moved** — ✅ Done (see [phase6.md](phase6.md))
+- [x] Define a `struct window { x, y, w, h, title, back_buffer, ... }`
+- [x] Implement rendering: title bar rect + body rect + border, blitted into the framebuffer back buffer
+- [x] Implement drag: on mouse-down inside title bar, track offset; on mouse-move while dragging, update window x/y; on mouse-up, stop dragging
+- [x] Test: spawn one window, drag it around the screen with the mouse, confirm it tracks smoothly (simulated via QEMU monitor `mouse_move`/`mouse_button` — no interactive window in this environment)
 
-**Milestone 6.3: Multiple windows with z-ordering**
-- [ ] Maintain a window list/array with a z-order (or linked list ordered front-to-back)
-- [ ] Implement compositing: redraw all windows back-to-front into the framebuffer back buffer every frame
-- [ ] Implement click-to-focus: clicking a window raises it to the top of the z-order
-- [ ] Test: spawn 3 overlapping windows, click each, confirm correct front/back ordering and drag-independence
+**Milestone 6.3: Multiple windows with z-ordering** — ✅ Done (see [phase6.md](phase6.md))
+- [x] Maintain a window list/array with a z-order (or linked list ordered front-to-back)
+- [x] Implement compositing: redraw all windows back-to-front into the framebuffer back buffer every frame
+- [x] Implement click-to-focus: clicking a window raises it to the top of the z-order
+- [x] Test: spawn 3 overlapping windows, click each, confirm correct front/back ordering and drag-independence
 
-**Milestone 6.4: Basic widgets — buttons and clickable regions**
-- [ ] Define a simple button widget (rect + label + click callback)
-- [ ] Implement hit-testing: mouse click coordinates → window → widget → callback dispatch
-- [ ] Test: a window with a button that changes color or logs to serial when clicked
+**Milestone 6.4: Basic widgets — buttons and clickable regions** — ✅ Done (see [phase6.md](phase6.md))
+- [x] Define a simple button widget (rect + label + click callback) — label rendering deferred to Phase 7 (no font renderer exists yet); button is a colored rect + callback for now
+- [x] Implement hit-testing: mouse click coordinates → window → widget → callback dispatch
+- [x] Test: a window with a button that changes color or logs to serial when clicked — logs to serial (`Button clicked! (click count=N)`), verified with two separate real clicks
 
 **Dependency note:** This is the largest and riskiest phase. See §9 for scope-creep guidance — a tempting rabbit hole is animations/transparency/shadows. Cut those for v1.
 
@@ -405,20 +405,20 @@ This assumes steady 5–10 hr/week pace with no major multi-week stalls. Phases 
 | 5 | 5.3 Double buffering | Redirect drawing to back buffer | Done | All draw calls write through a `draw_target` pointer that switches from the real framebuffer to the back buffer once initialized — no call-site changes needed anywhere else in the kernel. |
 | 5 | 5.3 Double buffering | Implement fb_flip | Done | Bulk 8-byte-word copy from back buffer to real framebuffer. |
 | 5 | 5.3 Double buffering | Verify no tearing with animation test | Done | 40-frame bouncing-rectangle animation (`sleep_ms(50)` between frames); 3 screendumps taken at different points during the animation each show a single complete, uncorrupted frame with the rectangle at a different, correctly-interpolated position — no ghosting, no partial-frame artifacts. |
-| 6 | 6.1 Mouse input | Enable PS/2 aux port + IRQ12 | Not Started | |
-| 6 | 6.1 Mouse input | Parse 3-byte mouse packets | Not Started | |
-| 6 | 6.1 Mouse input | Track/draw cursor | Not Started | |
-| 6 | 6.2 Single window draggable | Define struct window | Not Started | |
-| 6 | 6.2 Single window draggable | Render title bar + body + border | Not Started | |
-| 6 | 6.2 Single window draggable | Implement drag logic | Not Started | |
-| 6 | 6.2 Single window draggable | Test dragging smoothly | Not Started | |
-| 6 | 6.3 Multiple windows z-order | Maintain window list with z-order | Not Started | |
-| 6 | 6.3 Multiple windows z-order | Implement compositing loop | Not Started | |
-| 6 | 6.3 Multiple windows z-order | Implement click-to-focus | Not Started | |
-| 6 | 6.3 Multiple windows z-order | Test 3 overlapping windows | Not Started | |
-| 6 | 6.4 Basic widgets | Define button widget | Not Started | |
-| 6 | 6.4 Basic widgets | Implement hit-testing/dispatch | Not Started | |
-| 6 | 6.4 Basic widgets | Test clickable button | Not Started | |
+| 6 | 6.1 Mouse input | Enable PS/2 aux port + IRQ12 | Done | `kernel/src/mouse.c` — standard 0xA8/0x20+0x60/0xD4 handshake. Real bug found+fixed: the 0xF4 command's ACK byte (0xFA) leaked into the interrupt-driven stream and desynced packet framing since 0xFA's bit3 happens to pass the byte0 sanity check; fixed by explicitly rejecting 0xFA as a byte0 candidate. See phase6.md. |
+| 6 | 6.1 Mouse input | Parse 3-byte mouse packets | Done | Sign-extended dx/dy, Y-axis inverted for screen coordinates, overflow bits checked and packet dropped if set. |
+| 6 | 6.1 Mouse input | Track/draw cursor | Done | Verified live via QEMU monitor `mouse_move`/`mouse_button` (real PS/2 hardware path, same as `sendkey` for keyboard) + screendump: cursor visibly moved from center to the exact tracked `(840,500)` position after a `(200,100)` delta. |
+| 6 | 6.2 Single window draggable | Define struct window | Done | `kernel/include/window.h` / `kernel/src/window.c` — designed the full window/button/z-order system upfront (used incrementally across 6.2-6.4), consistent with the same "build the shared mechanism once" approach used in Phase 2. |
+| 6 | 6.2 Single window draggable | Render title bar + body + border | Done | Verified visually via screendump — colored title bar, body, black border, all correctly positioned. |
+| 6 | 6.2 Single window draggable | Implement drag logic | Done | Edge-triggered mouse-down-in-titlebar detection, offset-preserving drag, release-to-stop. |
+| 6 | 6.2 Single window draggable | Test dragging smoothly | Done | Verified live: window moved from (150,150) to (300,250), exactly matching the two (150,100) deltas sent via simulated mouse drag — confirmed visually via before/after screendumps. |
+| 6 | 6.3 Multiple windows z-order | Maintain window list with z-order | Done | Fixed 8-slot window array + separate z_order index array (back-to-front). |
+| 6 | 6.3 Multiple windows z-order | Implement compositing loop | Done | `window_composite()` draws all windows back-to-front then the cursor on top, called once per frame alongside `fb_flip()`. |
+| 6 | 6.3 Multiple windows z-order | Implement click-to-focus | Done | `raise_to_front()` removes a window from its current z-order slot and appends it to the front. |
+| 6 | 6.3 Multiple windows z-order | Test 3 overlapping windows | Done | 3 windows created (A back, B middle, C front, matching creation order). Verified visually: clicking backmost window A raised it above both B and C simultaneously — proves the general middle/back-of-array reordering path, not just a trivial 2-window swap. |
+| 6 | 6.4 Basic widgets | Define button widget | Done | Rect + color + callback, positioned relative to its parent window's body (moves correctly with the window). |
+| 6 | 6.4 Basic widgets | Implement hit-testing/dispatch | Done | Click coordinates → frontmost window under cursor → local body-relative coordinates → button rect test → callback invocation. |
+| 6 | 6.4 Basic widgets | Test clickable button | Done | Verified live: two real simulated clicks on the button both dispatched correctly (`Button clicked! (click count=1)`, then `2`), with cursor visually confirmed positioned over the button in the triggering screendump. |
 | 7 | 7.1 Bitmap font rendering | Embed bitmap font data | Not Started | |
 | 7 | 7.1 Bitmap font rendering | Implement fb_draw_char | Not Started | |
 | 7 | 7.1 Bitmap font rendering | Implement fb_draw_string | Not Started | |
