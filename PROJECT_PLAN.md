@@ -1,6 +1,6 @@
 # gOS — Gauthiii's Operating System — Project Plan
 
-**Last updated:** 2026-06-30 (Phase 0 completed — see [phase0.md](phase0.md); Phase 1 completed — see [phase1.md](phase1.md); Phase 2 completed — see [phase2.md](phase2.md))
+**Last updated:** 2026-06-30 (Phase 0 completed — see [phase0.md](phase0.md); Phase 1 completed — see [phase1.md](phase1.md); Phase 2 completed — see [phase2.md](phase2.md); Phase 3 completed — see [phase3.md](phase3.md))
 
 ## 1. Project Overview
 
@@ -112,22 +112,22 @@
 ### Phase 3 — Memory Management (Physical + Virtual)
 **Estimated time: 16–24 hours (~2.5–3 weeks)**
 
-**Milestone 3.1: Physical memory allocator (PMM) works**
-- [ ] Parse the Limine memory map to find usable RAM regions
-- [ ] Implement a bitmap-based physical page allocator (`pmm_alloc_page` / `pmm_free_page`, 4 KiB pages)
-- [ ] Reserve pages already used by kernel image, Limine reclaimable regions, and framebuffer
-- [ ] Write a smoke test: allocate 100 pages, free them, allocate again, confirm addresses are reused and no double-allocation occurs (assert via serial log)
+**Milestone 3.1: Physical memory allocator (PMM) works** — ✅ Done (see [phase3.md](phase3.md))
+- [x] Parse the Limine memory map to find usable RAM regions
+- [x] Implement a bitmap-based physical page allocator (`pmm_alloc_page` / `pmm_free_page`, 4 KiB pages)
+- [x] Reserve pages already used by kernel image, Limine reclaimable regions, and framebuffer
+- [x] Write a smoke test: allocate 100 pages, free them, allocate again, confirm addresses are reused and no double-allocation occurs (assert via serial log)
 
-**Milestone 3.2: Virtual memory / paging is under kernel control**
-- [ ] Write page table structures (PML4/PDPT/PD/PT) and a `vmm_map_page(virt, phys, flags)` function
-- [ ] Identity-map or higher-half-map the kernel using Limine's provided base addresses
-- [ ] Load a new `CR3` with the kernel-built page tables (not Limine's) and confirm the kernel keeps running (serial log after switch = success)
-- [ ] Hook the page fault handler (from 2.2) to log faulting address (`CR2`) and access type
+**Milestone 3.2: Virtual memory / paging is under kernel control** — ✅ Done (see [phase3.md](phase3.md))
+- [x] Write page table structures (PML4/PDPT/PD/PT) and a `vmm_map_page(virt, phys, flags)` function
+- [x] Identity-map or higher-half-map the kernel using Limine's provided base addresses
+- [x] Load a new `CR3` with the kernel-built page tables (not Limine's) and confirm the kernel keeps running (serial log after switch = success)
+- [x] Hook the page fault handler (from 2.2) to log faulting address (`CR2`) and access type
 
-**Milestone 3.3: Kernel heap allocator exists**
-- [ ] Implement a simple heap (bump allocator or freelist) backed by `vmm_map_page` calls
-- [ ] Implement `kmalloc` / `kfree`
-- [ ] Stress test: allocate/free a mix of small and large blocks in a loop, verify no corruption via a canary/guard pattern
+**Milestone 3.3: Kernel heap allocator exists** — ✅ Done (see [phase3.md](phase3.md))
+- [x] Implement a simple heap (freelist allocator with header/footer guards) backed by `vmm_map_page` calls
+- [x] Implement `kmalloc` / `kfree`
+- [x] Stress test: allocate/free a mix of small and large blocks in a loop, verify no corruption via a canary/guard pattern
 
 **Dependency note:** Everything from Phase 4 onward calls `kmalloc` — this phase blocks the entire rest of the project. Budget extra time here; it's the phase most OSDev projects stall on.
 
@@ -376,17 +376,17 @@ This assumes steady 5–10 hr/week pace with no major multi-week stalls. Phases 
 | 2 | 2.3 Hardware interrupts enabled | Remap 8259 PIC | Done | `kernel/src/pic.c` — remaps IRQ0-7 to vectors 32-39 and IRQ8-15 to 40-47, preserves original interrupt masks across remap, provides `pic_send_eoi`/`pic_set_mask`/`pic_clear_mask`. |
 | 2 | 2.3 Hardware interrupts enabled | Write IRQ0/IRQ1 entry stubs | Done | Covered generically by all 16 IRQ stubs added in the 2.2 ISR work; `idt_register_irq_handler()` added as a dispatch mechanism for individual IRQ handlers (used by the timer in this milestone, keyboard driver comes in Phase 4). |
 | 2 | 2.3 Hardware interrupts enabled | Enable interrupts, confirm timer ticks | Done | `kernel/src/timer.c` registers an IRQ0 handler, unmasks IRQ0, `sti` executed in `_start`. Verified live: ticks increment and log roughly once per second (18 ticks) at the PIT's default ~18.2Hz rate, sustained over 13+ seconds with no crash. |
-| 3 | 3.1 Physical memory allocator | Parse Limine memory map | Not Started | |
-| 3 | 3.1 Physical memory allocator | Implement bitmap PMM alloc/free | Not Started | |
-| 3 | 3.1 Physical memory allocator | Reserve kernel/framebuffer regions | Not Started | |
-| 3 | 3.1 Physical memory allocator | Smoke test alloc/free reuse | Not Started | |
-| 3 | 3.2 Virtual memory/paging | Write page table structures | Not Started | |
-| 3 | 3.2 Virtual memory/paging | Map kernel higher-half | Not Started | |
-| 3 | 3.2 Virtual memory/paging | Load new CR3, confirm still running | Not Started | |
-| 3 | 3.2 Virtual memory/paging | Hook page fault handler to log CR2 | Not Started | |
-| 3 | 3.3 Kernel heap | Implement heap backed by vmm_map_page | Not Started | |
-| 3 | 3.3 Kernel heap | Implement kmalloc/kfree | Not Started | |
-| 3 | 3.3 Kernel heap | Stress test alloc/free mix | Not Started | |
+| 3 | 3.1 Physical memory allocator | Parse Limine memory map | Done | Bitmap sized against USABLE entries only, after a bug caused it to include a huge high-address PCI/MMIO RESERVED region (see phase3.md deviations). |
+| 3 | 3.1 Physical memory allocator | Implement bitmap PMM alloc/free | Done | `kernel/src/pmm.c` — bitmap allocator with a search-hint cursor for fast reuse-after-free. |
+| 3 | 3.1 Physical memory allocator | Reserve kernel/framebuffer regions | Done | Non-USABLE memmap types (kernel, framebuffer, ACPI, bootloader-reclaimable) default to reserved; physical page 0 also explicitly reserved (bug fix — see phase3.md). |
+| 3 | 3.1 Physical memory allocator | Smoke test alloc/free reuse | Done | `pmm_self_test()` — 100 pages allocated (no duplicates), freed, re-allocated; verified live: "PASS (100/100 re-allocations reused a freed page)". |
+| 3 | 3.2 Virtual memory/paging | Write page table structures | Done | `kernel/src/vmm.c` — 4-level (PML4/PDPT/PD/PT) walker with `vmm_map_page` (4KiB) and an internal `vmm_map_2mb` helper for efficient bulk identity/HHDM mapping. |
+| 3 | 3.2 Virtual memory/paging | Map kernel higher-half | Done | Identity + HHDM map first 4GiB via 2MiB pages; kernel's own higher-half range mapped 4KiB via new `__kernel_virt_start`/`__kernel_virt_end` linker symbols and Limine's kernel address response. |
+| 3 | 3.2 Virtual memory/paging | Load new CR3, confirm still running | Done | Verified live: "VMM: new CR3 loaded, kernel still running", plus timer interrupts continued firing for 10+ ticks after the switch — strong confirmation the new tables are fully correct, not just non-crashing. |
+| 3 | 3.2 Virtual memory/paging | Hook page fault handler to log CR2 | Done | Extended Phase 2's handler to decode error-code bits into a human-readable access type; verified live: "Access type: not-present, write, supervisor-mode" matching the exact deliberate test fault. |
+| 3 | 3.3 Kernel heap | Implement heap backed by vmm_map_page | Done | `kernel/src/heap.c` — freelist allocator (first-fit, forward coalescing), grows via `vmm_map_page`/`pmm_alloc_page` on demand, 64MiB virtual ceiling for v1. |
+| 3 | 3.3 Kernel heap | Implement kmalloc/kfree | Done | Header+footer magic guards on every block for corruption detection. |
+| 3 | 3.3 Kernel heap | Stress test alloc/free mix | Done | `heap_self_test()` — 300 randomized alloc/free cycles (small 8-64B and large 512-4096B blocks) with content-integrity checks, plus a deliberate buffer-overrun test proving the guard actually detects corruption. Verified live: "PASS (300 cycles clean, guard correctly detected deliberate overrun)". |
 | 4 | 4.1 PIT timer driver | Program PIT to fixed frequency | Not Started | |
 | 4 | 4.1 PIT timer driver | Maintain tick counter in IRQ0 | Not Started | |
 | 4 | 4.1 PIT timer driver | Implement sleep_ms, verify timing | Not Started | |

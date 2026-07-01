@@ -102,6 +102,22 @@ void isr_handler(struct interrupt_frame *frame) {
         __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
         serial_write_string("\nCR2 (faulting address): ");
         serial_write_hex64(cr2);
+
+        /* Page fault error code bit layout (Intel SDM Vol. 3A, 4.7):
+         * bit0: 0=not-present, 1=protection violation
+         * bit1: 0=read, 1=write
+         * bit2: 0=supervisor, 1=user
+         * bit4: 1=instruction fetch */
+        uint64_t ec = frame->error_code;
+        serial_write_string("\nAccess type: ");
+        serial_write_string((ec & (1ULL << 0)) ? "protection-violation" : "not-present");
+        serial_write_string(", ");
+        serial_write_string((ec & (1ULL << 1)) ? "write" : "read");
+        serial_write_string(", ");
+        serial_write_string((ec & (1ULL << 2)) ? "user-mode" : "supervisor-mode");
+        if (ec & (1ULL << 4)) {
+            serial_write_string(", instruction-fetch");
+        }
     }
 
     serial_write_string("\n!!! System halted !!!\n");

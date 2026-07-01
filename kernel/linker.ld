@@ -19,6 +19,7 @@ PHDRS
 SECTIONS
 {
     . = 0xffffffff80000000;
+    PROVIDE(__kernel_virt_start = .);
 
     /* Limine request structs must live in their own section/segment so the
      * bootloader can find them by scanning the ELF program headers before
@@ -51,6 +52,9 @@ SECTIONS
         *(COMMON)
         *(.bss .bss.*)
     } :data
+
+    . = ALIGN(CONSTANT(MAXPAGESIZE));
+    PROVIDE(__kernel_virt_end = .);
 
     /DISCARD/ : {
         *(.eh_frame)

@@ -5,6 +5,12 @@
 #include <idt.h>
 #include <pic.h>
 #include <timer.h>
+#include <pmm.h>
+#include <vmm.h>
+#include <heap.h>
+
+extern uint8_t __kernel_virt_start[];
+extern uint8_t __kernel_virt_end[];
 
 __attribute__((used, section(".requests")))
 static volatile LIMINE_BASE_REVISION(3);
@@ -24,6 +30,18 @@ static volatile struct limine_memmap_request memmap_request = {
 __attribute__((used, section(".requests")))
 static volatile struct limine_framebuffer_request framebuffer_request = {
     .id = LIMINE_FRAMEBUFFER_REQUEST,
+    .revision = 0
+};
+
+__attribute__((used, section(".requests")))
+static volatile struct limine_hhdm_request hhdm_request = {
+    .id = LIMINE_HHDM_REQUEST,
+    .revision = 0
+};
+
+__attribute__((used, section(".requests")))
+static volatile struct limine_kernel_address_request kernel_address_request = {
+    .id = LIMINE_KERNEL_ADDRESS_REQUEST,
     .revision = 0
 };
 
@@ -148,6 +166,25 @@ void _start(void) {
     timer_init();
     __asm__ volatile ("sti");
     serial_write_string("Interrupts enabled (sti). Waiting for timer ticks...\n");
+
+    if (hhdm_request.response == 0) {
+        serial_write_string("PANIC: no HHDM response from Limine\n");
+        hcf();
+    }
+    pmm_init(memmap, hhdm_request.response->offset);
+    pmm_self_test();
+
+    if (kernel_address_request.response == 0) {
+        serial_write_string("PANIC: no kernel address response from Limine\n");
+        hcf();
+    }
+    vmm_init(hhdm_request.response->offset,
+              kernel_address_request.response->physical_base,
+              (uint64_t)__kernel_virt_start,
+              (uint64_t)__kernel_virt_end);
+
+    heap_init();
+    heap_self_test();
 
     serial_write_string("=== gOS boot checks complete ===\n");
 
