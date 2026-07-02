@@ -3,10 +3,12 @@
 #include <font.h>
 #include <window.h>
 #include <mouse.h>
+#include <keyboard.h>
 #include <fm.h>
 #include <serial.h>
 #include <taskbar.h>
 #include <wallpaper.h>
+#include <settings.h>
 
 #define ICON_X 20
 #define ICON_Y 20
@@ -41,6 +43,30 @@ void desktop_render(void) {
 }
 
 void desktop_update(void) {
+    /* Milestone 22.3: F2 toggles the wallpaper mode and saves immediately -
+     * checked every frame regardless of mouse state, independent of the
+     * icon-click handling below. */
+    if (kb_consume_toggle_wallpaper()) {
+        int now_forced = !wallpaper_is_gradient_forced();
+        wallpaper_set_gradient_forced(now_forced);
+        settings_save();
+        serial_write_string("Desktop: F2 - wallpaper gradient_forced now ");
+        serial_write_uint((uint64_t)now_forced);
+        serial_write_string("\n");
+    }
+
+    /* Milestone 22.3: notice a drag/resize of the File Manager window and
+     * persist it - settings_record_fm_geometry() itself no-ops (no FAT32
+     * write) if nothing actually changed since the last check, so this
+     * runs every frame cheaply rather than needing its own change-event
+     * hook into window.c. */
+    if (fm_is_open()) {
+        struct window *fm_win = window_get(fm_win_index);
+        if (fm_win) {
+            settings_record_fm_geometry(fm_win->x, fm_win->y, fm_win->w, fm_win->h);
+        }
+    }
+
     int64_t mx = mouse_x();
     int64_t my = mouse_y();
     uint8_t buttons = mouse_buttons();
@@ -62,7 +88,9 @@ void desktop_update(void) {
         window_focus(fm_win_index);
     } else {
         serial_write_string("Desktop: Files icon clicked - launching File Manager\n");
-        fm_win_index = fm_create_window(120, 60, 420, 260);
+        /* Milestone 22.3: use the persisted geometry (falls back to the
+         * same defaults as before if no GOS.CFG was found/loaded). */
+        fm_win_index = fm_create_window(settings_fm_x(), settings_fm_y(), settings_fm_w(), settings_fm_h());
         if (fm_win_index == -1) {
             /* Finding #17: fm_create_window() already guards its own
              * internal window_create() call, but this caller never

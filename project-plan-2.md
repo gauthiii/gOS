@@ -276,21 +276,23 @@ Audio and networking were explicitly scoped **out** of this plan — both are la
 
 ---
 
-### Phase 22 — RTC Driver, Taskbar Clock & Settings Persistence
+### Phase 22 — RTC Driver, Taskbar Clock & Settings Persistence ✅ Complete — see [phase22.md](phase22.md)
 **Estimated time: 10–14 hours (~1.5–2 weeks)**
 
 **Milestone 22.1: CMOS RTC driver**
-- [ ] Read the CMOS real-time clock registers (ports 0x70/0x71) for date/time, handling the BCD-vs-binary and 12/24-hour format quirks (checking Status Register B)
-- [ ] Test: in QEMU, boot with a known `-rtc base=...` value passed on the command line; confirm the driver's parsed date/time matches what QEMU was told to present, logged over serial
+- [x] Read the CMOS real-time clock registers (ports 0x70/0x71) for date/time, handling the BCD-vs-binary and 12/24-hour format quirks (checking Status Register B)
+- [x] Test: in QEMU, boot with a known `-rtc base=...` value passed on the command line; confirm the driver's parsed date/time matches what QEMU was told to present, logged over serial
 
 **Milestone 22.2: Taskbar clock widget**
-- [ ] Render a live HH:MM (or HH:MM:SS) clock in the taskbar (`kernel/src/taskbar.c`), updating at least once per displayed second
-- [ ] Test: in QEMU, `screendump` the taskbar clock at two points roughly 10 seconds apart (using QEMU's `-rtc` to control the simulated clock precisely) and confirm the displayed time advanced by the expected amount
+- [x] Render a live HH:MM (or HH:MM:SS) clock in the taskbar (`kernel/src/taskbar.c`), updating at least once per displayed second
+- [x] Test: in QEMU, `screendump` the taskbar clock at two points roughly 10 seconds apart (using QEMU's `-rtc` to control the simulated clock precisely) and confirm the displayed time advanced by the expected amount
 
 **Milestone 22.3: Settings persistence**
-- [ ] Define a small config file format (e.g. `GOS.CFG` on the FAT32 root) storing at minimum the current wallpaper choice and each open window's last-known geometry (position, and size once Phase 21 lands)
-- [ ] Save on a graceful shutdown/reboot trigger and load at boot, applying saved geometry to whichever apps reopen
-- [ ] Test: in QEMU, move a window and/or change the wallpaper, trigger a save, then in a **separate, fresh QEMU process** against the same disk image, confirm the restored state matches — cross-check the config file's raw bytes independently via `mtype`/`xxd`, not just the OS's own read-back
+- [x] Define a small config file format (e.g. `GOS.CFG` on the FAT32 root) storing at minimum the current wallpaper choice and each open window's last-known geometry (position, and size once Phase 21 lands)
+- [x] Save on a graceful shutdown/reboot trigger and load at boot, applying saved geometry to whichever apps reopen
+- [x] Test: in QEMU, move a window and/or change the wallpaper, trigger a save, then in a **separate, fresh QEMU process** against the same disk image, confirm the restored state matches — cross-check the config file's raw bytes independently via `mtype`/`xxd`, not just the OS's own read-back
+
+**Phase 22 exit criterion:** ✅ a working taskbar clock reflecting real time (exact 10-second advance verified between precisely-timed screendumps), and user preferences (wallpaper mode + File Manager geometry) that survive a reboot, verified independently via `xxd` on the raw `GOS.CFG` bytes and confirmed end-to-end with a genuinely fresh QEMU process. Two underspecified design questions (wallpaper "choice" mechanism, save trigger, since gOS has no picker UI or real shutdown hook) were resolved with the user before implementation. Full writeup: [phase22.md](phase22.md).
 
 **Phase 22 exit criterion:** a working taskbar clock reflecting real time, and user preferences that survive a reboot, verified independently via `mtools`.
 
@@ -424,9 +426,9 @@ Assuming the same ~7.5 hrs/week pace as the v1 plan:
 | 20 | 20.3 Scheduler fairness | Multi-process no-starvation test | Done | 5 concurrent processes, heavy interleaving, all complete; desktop confirmed responsive via real click immediately after |
 | 21 | 21.1 Resize | Drag-to-resize from edge/corner | Done | Corner/right/bottom handles, min-size + screen-edge clamping both screendump-verified — see [phase21.md](phase21.md) |
 | 21 | 21.2 Alt+Tab | Keyboard window-switching | Done | Fixed a real "only toggles last 2 windows" design bug before first boot; full-ring rotation verified via serial log + screendump across 3 windows |
-| 22 | 22.1 RTC driver | CMOS date/time read | Not Started | |
-| 22 | 22.2 Taskbar clock | Live clock widget | Not Started | |
-| 22 | 22.3 Settings persistence | Config file save/load across reboot | Not Started | |
+| 22 | 22.1 RTC driver | CMOS date/time read | Done | Exact match vs. QEMU `-rtc base=...`, up to expected boot-delay drift — see [phase22.md](phase22.md) |
+| 22 | 22.2 Taskbar clock | Live clock widget | Done | Exact 10s advance verified between two precisely-timed screendumps |
+| 22 | 22.3 Settings persistence | Config file save/load across reboot | Done | Wallpaper toggle (F2) + FM geometry auto-saved; `xxd`-verified raw bytes; restored on a genuinely fresh boot |
 | 23 | 23.1 LFN read | Parse + display long filenames | Not Started | |
 | 23 | 23.2 LFN write | Create files/dirs with long names | Not Started | |
 | 24 | 24.1 Shell | Interactive shell (user-mode, or kernel-mode fallback) | Not Started | |

@@ -23,6 +23,10 @@
 #define SC_LEFT_ALT_MAKE    0x38
 #define SC_LEFT_ALT_BREAK   0xB8
 #define SC_TAB_MAKE         0x0F
+/* Milestone 22.3: F2 toggles the wallpaper between the bundled BMP and the
+ * plain gradient - an arbitrary but unused key (no F-key is mapped to
+ * anything else in scancode_ascii[]/scancode_ascii_shift[]). */
+#define SC_F2_MAKE          0x3C
 
 /* Ctrl+S is reported to callers as ASCII DC3 (0x13) - the conventional
  * "device control 3 / XOFF" control code historically used for Ctrl+S in
@@ -60,6 +64,7 @@ static volatile int right_ctrl_held = 0;
 static volatile int pending_extended = 0;
 static volatile int alt_held = 0;
 static volatile int alt_tab_pending = 0;
+static volatile int toggle_wallpaper_pending = 0;
 
 #define RING_BUFFER_SIZE 256
 static volatile char ring_buffer[RING_BUFFER_SIZE];
@@ -141,6 +146,9 @@ static void keyboard_irq_handler(struct interrupt_frame *frame) {
          * inserts a literal '\t'. */
         alt_tab_pending = 1;
         serial_write_string("Keyboard: Alt+Tab pressed\n");
+    } else if (sc == SC_F2_MAKE) {
+        toggle_wallpaper_pending = 1;
+        serial_write_string("Keyboard: F2 pressed (toggle wallpaper)\n");
     } else if (sc == SC_ENTER_MAKE && is_extended) {
         /* Numpad Enter (0xE0 0x1C) - functionally still produces '\n'
          * like plain Enter, but now explicitly recognized as the
@@ -182,6 +190,14 @@ int kb_has_char(void) {
 int kb_consume_alt_tab(void) {
     if (alt_tab_pending) {
         alt_tab_pending = 0;
+        return 1;
+    }
+    return 0;
+}
+
+int kb_consume_toggle_wallpaper(void) {
+    if (toggle_wallpaper_pending) {
+        toggle_wallpaper_pending = 0;
         return 1;
     }
     return 0;

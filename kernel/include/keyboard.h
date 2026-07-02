@@ -20,4 +20,8 @@ int kb_has_char(void);
  * also enqueue a '\t' character). */
 int kb_consume_alt_tab(void);
 
+/* Milestone 22.3: same edge-triggered/self-consuming pattern as
+ * kb_consume_alt_tab(), for the F2 "toggle wallpaper" key. */
+int kb_consume_toggle_wallpaper(void);
+
 #endif

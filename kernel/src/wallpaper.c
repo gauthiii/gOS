@@ -12,6 +12,7 @@
  * successfully. */
 static uint32_t *image_pixels;
 static uint64_t img_w, img_h;
+static int gradient_forced = 0;
 
 static uint16_t read_u16(const uint8_t *p) {
     return (uint16_t)(p[0] | (p[1] << 8));
@@ -108,6 +109,14 @@ int wallpaper_image_loaded(void) {
     return image_pixels != 0;
 }
 
+void wallpaper_set_gradient_forced(int forced) {
+    gradient_forced = forced ? 1 : 0;
+}
+
+int wallpaper_is_gradient_forced(void) {
+    return gradient_forced;
+}
+
 /* Milestone 15.2 fallback / base layer: vertical gradient from deep blue
  * (top) to teal (bottom), interpolated per scanline. */
 static void render_gradient(void) {
@@ -125,7 +134,7 @@ void wallpaper_render(void) {
     uint64_t sw = fb_width();
     uint64_t sh = fb_height();
 
-    if (!image_pixels) {
+    if (!image_pixels || gradient_forced) {
         render_gradient();
         return;
     }

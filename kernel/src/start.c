@@ -20,6 +20,8 @@
 #include <taskbar.h>
 #include <wallpaper.h>
 #include <usermode.h>
+#include <settings.h>
+#include <rtc.h>
 #include <syscall.h>
 #include <process.h>
 
@@ -945,6 +947,38 @@ void _start(void) {
      * disk (heap + FAT32 are both up by now); falls back to the built-in
      * gradient (Milestone 15.2) if missing or malformed. */
     wallpaper_init();
+
+    /* Milestone 22.3: load persisted settings (wallpaper mode, File
+     * Manager geometry) - after wallpaper_init() so a persisted
+     * gradient_forced=1 correctly overrides whatever wallpaper_init() just
+     * decided, and before the desktop loop below ever creates the File
+     * Manager or renders a frame. */
+    settings_load();
+
+#if defined(GOS_TEST_RTC)
+    /* Milestone 22.1: log the parsed date/time directly, so a host script
+     * can diff it against the exact value QEMU's `-rtc base=...` flag was
+     * told to present - independent proof the BCD/12-hour/update-in-
+     * progress handling is all correct, not just "some plausible-looking
+     * numbers came out". */
+    {
+        struct rtc_time t;
+        rtc_read(&t);
+        serial_write_string("TEST: RTC read - ");
+        serial_write_uint(t.year);
+        serial_write_string("-");
+        serial_write_uint(t.month);
+        serial_write_string("-");
+        serial_write_uint(t.day);
+        serial_write_string(" ");
+        serial_write_uint(t.hour);
+        serial_write_string(":");
+        serial_write_uint(t.min);
+        serial_write_string(":");
+        serial_write_uint(t.sec);
+        serial_write_string("\n");
+    }
+#endif
 
 #if defined(GOS_TEST_WINDOW_TEARDOWN_LEAK)
     /* Milestone 16.1 repro: open and close a window with a textbox 20 times

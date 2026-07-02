@@ -16,7 +16,16 @@ void wallpaper_init(void);
 int wallpaper_image_loaded(void);
 
 /* Draws the wallpaper across the whole screen (image if loaded, gradient
- * otherwise). Must be the first thing drawn each frame. */
+ * otherwise, unless gradient is forced - see below). Must be the first
+ * thing drawn each frame. */
 void wallpaper_render(void);
+
+/* Milestone 22.3: the persisted "wallpaper choice". When forced, the
+ * gradient renders even if the BMP loaded successfully - the only real
+ * choice available today, since there's no multi-wallpaper picker UI yet.
+ * Toggled by F2 (see keyboard.c's kb_consume_toggle_wallpaper()) and
+ * saved/restored via settings.c. */
+void wallpaper_set_gradient_forced(int forced);
+int wallpaper_is_gradient_forced(void);
 
 #endif
