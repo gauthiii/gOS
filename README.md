@@ -24,7 +24,7 @@ gOS targets a real (or emulated) x86_64 PC. The numbers below are the environmen
 | **Filesystem** | FAT32, hand-written from scratch (BPB parsing, cluster-chain walking with cycle detection, directory entries, 8.3 names only — no long filenames) |
 | **Display** | Framebuffer graphics via Limine's GOP handoff, currently 1280x800 (whatever resolution Limine/UEFI negotiates), 32bpp, double-buffered |
 | **Input** | PS/2 keyboard (with extended 0xE0-prefixed scancode handling) and PS/2 mouse only — no USB HID beyond QEMU's emulated PS/2 translation |
-| **Windowing** | Custom compositor: up to `MAX_WINDOWS = 8` simultaneous windows, draggable/overlappable/z-ordered/closable/minimizable/maximizable, with a persistent taskbar for restore/focus — no free-form resize (drag-to-resize an edge/corner) |
+| **Windowing** | Custom compositor: up to `MAX_WINDOWS = 8` simultaneous windows, draggable/overlappable/z-ordered/closable/minimizable/maximizable/resizable (drag any edge or the bottom-right corner), with a persistent taskbar for restore/focus and Alt+Tab keyboard switching |
 | **Text rendering** | Hand-embedded 8x8 bitmap font (no font file loading, no anti-aliasing, no Unicode — ASCII only) |
 | **Memory management** | Bitmap physical page allocator, 4-level paging (kernel controls its own page tables), `kmalloc`/`kfree` heap allocator with double-free detection, dedicated 16 KiB IST1 stack for double-fault/NMI |
 | **Interrupts** | Custom GDT/IDT/TSS, PIC-remapped hardware IRQs, spurious-IRQ7/15 detection, an `int 0x80` DPL=3 syscall gate (`write`/`exit`) |
@@ -34,13 +34,12 @@ gOS targets a real (or emulated) x86_64 PC. The numbers below are the environmen
 | **Multi-user / permissions** | None — single implicit user, no privilege separation, kernel memory mapped uniformly RWX (no W^X enforcement); ring-3 user-mode code exists (Phase 19) but shares the kernel's own page tables with no per-process isolation yet |
 | **Toolchain** | `x86_64-elf-gcc` (freestanding, no libc), NASM, `x86_64-elf-gdb`, built and tested on macOS + QEMU (Linux hosts work with equivalent packages) |
 
-**Status: v1.0 complete, plus post-v1.0 patch, plus Track A (all 24 audit findings fixed), plus all of Track B (Phases 15–17: cursor/wallpaper, window minimize/close/taskbar, maximize), plus Track C Phases 18–20 (boot-time cleanup, user mode/syscalls/ELF loader, preemptive multitasking).** Toolchain → bootloader → interrupts → memory management → drivers → graphics → windowing → fonts/text input → FAT32 filesystem → file manager UI → CRUD operations → polish/stability (v1.0) → 5 Critical + 6 High + 12 Medium/Low audit fixes (Track A, Phases 12–14) → real arrow cursor + gradient/BMP wallpaper (Track B, Phase 15) → window minimize + persistent taskbar restore/focus (Track B, Phase 16) → window maximize/restore (Track B, Phase 17) → default boot time cut from ~75-80s to ~1s (Phase 18) → ring 3 execution + syscalls + an ELF64 loader running a real bundled binary (Track C, Phase 19) → real preemptive multitasking with per-process page-table isolation (Track C, Phase 20). Phases 21–24 (window resize/Alt+Tab, RTC/clock/settings, long filenames, shell/calculator/image viewer) have not started yet — see [project-plan-2.md](project-plan-2.md)'s status tracker.
+**Status: v1.0 complete, plus post-v1.0 patch, plus Track A (all 24 audit findings fixed), plus all of Track B (Phases 15–17: cursor/wallpaper, window minimize/close/taskbar, maximize), plus Track C Phases 18–20 (boot-time cleanup, user mode/syscalls/ELF loader, preemptive multitasking), plus Track D Phase 21 (window resize & Alt+Tab).** Toolchain → bootloader → interrupts → memory management → drivers → graphics → windowing → fonts/text input → FAT32 filesystem → file manager UI → CRUD operations → polish/stability (v1.0) → 5 Critical + 6 High + 12 Medium/Low audit fixes (Track A, Phases 12–14) → real arrow cursor + gradient/BMP wallpaper (Track B, Phase 15) → window minimize + persistent taskbar restore/focus (Track B, Phase 16) → window maximize/restore (Track B, Phase 17) → default boot time cut from ~75-80s to ~1s (Phase 18) → ring 3 execution + syscalls + an ELF64 loader running a real bundled binary (Track C, Phase 19) → real preemptive multitasking with per-process page-table isolation (Track C, Phase 20) → drag-to-resize windows + Alt+Tab switching (Track D, Phase 21). Phases 22–24 (RTC/clock/settings, long filenames, shell/calculator/image viewer) have not started yet — see [project-plan-2.md](project-plan-2.md)'s status tracker.
 
 ### Known limitations
 
 - **v1.0 scope boundaries** (still true today): no networking, no multi-core/SMP, no sound, no USB beyond QEMU's emulated PS/2, no real package manager, no POSIX compatibility, no multi-user/permissions, no JIT/scripting layer, no fine-grained W^X page permissions (kernel mapped uniformly RWX).
 - **`wait` is poll-style, not truly blocking**: `SYS_WAITPID` (Phase 20) returns `-1` until the target process is a zombie, rather than descheduling the caller until the child exits — a documented scope cut (see [phase20.md](phase20.md)) since a real blocking wait needs a wait-queue this phase didn't build.
-- **No free-form window resize**: a window can be dragged, minimized, and maximized/restored to its exact prior geometry, but there's no drag-an-edge-or-corner resize handle (planned for Phase 21).
 - **No long filenames**: FAT32 support is 8.3 names only (planned for Phase 23).
 - **Environment-specific hardware assumptions carried from v1.0**: single ATA drive on the primary master IDE channel (no secondary channel, no AHCI/NVMe), legacy 8259 PIC only (no APIC/x2APIC), PS/2 keyboard/mouse only.
 - **Known-safe-by-convention, not by construction**: `fm.c`'s double-click file identity is tracked by row index, not filename — safe today only because every listing-mutating code path calls `fm_refresh()` first (see Finding #24 in [phase14.md](phase14.md)); documented as an explicit invariant rather than hardened against.
@@ -69,6 +68,7 @@ gOS targets a real (or emulated) x86_64 PC. The numbers below are the environmen
 - **Fast boot (Phase 18):** `make run` now reaches the interactive desktop in about a second — the old ~75-80 second boot (a bouncing-rectangle animation, a "Hello, gOS!" hold, a live mouse-cursor test window, and a 450-cycle file/window stress test, all running unconditionally on every boot) is gated behind a new `make diagnostic` build, preserving every regression check with zero loss of coverage while defaulting to a boot that's actually fast to iterate on — see [phase18.md](phase18.md)
 - **User mode, syscalls & an ELF loader (Track C, Phase 19):** gOS can now drop into ring 3, take an `int 0x80` syscall (`write`/`exit`) back from user-mode code, and load/run a genuine, separately-built ELF64 binary (`HELLO.ELF`, bundled on the disk image) — proving a real user-mode program, not just kernel code, can execute and talk to the kernel. Found and fixed a real bug along the way: the VMM's page-table walker wasn't propagating the user-accessible permission bit to already-existing intermediate page-table entries, silently blocking the very first ring-3 mapping gOS ever attempted — see [phase19.md](phase19.md)
 - **Real preemptive multitasking (Track C, Phase 20):** multiple independent processes, each with its own private page tables (separate `CR3`), run concurrently under genuine timer-driven preemption — proven by two processes loading at the identical virtual address with zero collision, and by serial output from concurrent processes visibly interleaving rather than running sequentially. New `spawn`/`exit`/`waitpid` syscalls round-trip a specific exit code from a spawned child back to its parent, and a 5-process fairness test confirms no starvation and a fully responsive desktop afterward. Found and fixed a NASM label/register-name collision (a data label named `ch` shadowed the `CH` register) and an initial test whose workload was too fast to actually trigger preemption — see [phase20.md](phase20.md)
+- **Window resize & Alt+Tab (Track D, Phase 21):** every window can now be resized by dragging any edge or the bottom-right corner, clamped to a sane minimum size and the screen bounds; Alt+Tab cycles focus through every open window with no mouse involved. Found and fixed a real design bug before ever booting it: the first focus-cycling implementation only ever toggled between the last two windows instead of visiting all of them, caught by hand-tracing the algorithm against the milestone's own "stable, non-repeating order" requirement — see [phase21.md](phase21.md)
 
 ---
 
@@ -405,6 +405,33 @@ Fully rendered and responsive — proof that real preemptive multitasking (conte
 
 ![File Manager listing all Phase 20 test binaries](screenshots/phase20_fm.png)
 
+### Phase 21 — Window Resize & Alt+Tab (Track D)
+
+**Before resizing** ([phase21.md](phase21.md), Milestone 21.1)
+The File Manager at its default 420×260 size.
+
+![File Manager at default size](screenshots/phase21_before_resize.png)
+
+**Enlarged by dragging the bottom-right corner** ([phase21.md](phase21.md), Milestone 21.1)
+Dragged out to roughly 530×366 — the toolbar, breadcrumb, and file listing all re-layout cleanly at the new size.
+
+![File Manager enlarged via corner drag](screenshots/phase21_after_enlarge.png)
+
+**Shrunk back down** ([phase21.md](phase21.md), Milestone 21.1)
+The same corner dragged back inward — a clean shrink with no corruption.
+
+![File Manager shrunk back down](screenshots/phase21_after_shrink.png)
+
+**Clamped at the screen edge** ([phase21.md](phase21.md), Milestone 21.1)
+Dragged far past the bottom-right of the screen — clamps exactly to the screen width and the taskbar's top edge instead of wrapping or crashing.
+
+![Window resize clamped at the screen boundary](screenshots/phase21_edge_clamp.png)
+
+**Alt+Tab cycling through three windows, no mouse involved** ([phase21.md](phase21.md), Milestone 21.2)
+File Manager, an editor window, and a "New Folder" dialog all open; Alt+Tab brings each to front in turn (taskbar entry highlighted each time), visiting all three with no repeats.
+
+![Alt+Tab bringing a window to front](screenshots/phase21_alttab_1.png)
+
 ---
 
 ## Project structure
@@ -433,6 +460,7 @@ phase18.md           v2 (Track C-prep): boot-time cleanup (~75-80s -> ~1s defaul
 phase19.md           v2 Track C, Phase 1: ring 3 + syscalls (int 0x80) + a minimal ELF64 loader
 phase20.md           v2 Track C, Phase 2: preemptive multitasking, per-process page tables,
                       spawn/exit/waitpid syscalls
+phase21.md           v2 Track D, Phase 1: window drag-to-resize + Alt+Tab switching
 tools/userland/      standalone user-mode test programs (ring3_test.asm, hello.asm/user.ld,
                       spinner.asm/child.asm/parent.asm/proc.ld) - built independently of the
                       kernel, no libc/crt0
@@ -455,6 +483,7 @@ version1/            all v1.0 planning/completion docs, moved here after v2 plan
 - [phase18.md](phase18.md) — cuts the default boot from ~75-80s to ~1s by gating the old regression-demo/stress-test sequence behind a new `make diagnostic` build, with the PIT tick count used to measure the improvement and a log-diff proving zero loss of test coverage
 - [phase19.md](phase19.md) — Track C's first phase: ring 3 execution, an `int 0x80` syscall gate, and a minimal ELF64 loader running a real bundled binary, including a full symptom/diagnosis/fix writeup for a genuine VMM bug (page-table `PAGE_USER` bit not propagating to already-existing intermediate entries) found while testing the very first user-mode mapping
 - [phase20.md](phase20.md) — Track C's second phase: a real preemptive scheduler with per-process page-table isolation, `spawn`/`exit`/`waitpid` syscalls, and a 5-process fairness test, including two documented bugs found during testing (a NASM label/register-name collision, and an initial test workload too fast to actually trigger preemption)
+- [phase21.md](phase21.md) — Track D's first phase: drag-to-resize windows (with min-size and screen-edge clamping) and Alt+Tab switching, including a documented design bug (the first focus-cycling algorithm only ever toggled between 2 windows) caught by hand-tracing the logic before ever booting it
 - [version1/PROJECT_PLAN.md](version1/PROJECT_PLAN.md) — full v1.0 project scope, phase breakdown, dependency graph, and status tracker
 - `version1/phase0.md` through `version1/phase11.md` — one detailed write-up per completed v1.0 phase: what was built, exact commands to reproduce every test, and any real bugs found (with symptom/diagnosis/fix)
 - [version1/phase-patch.md](version1/phase-patch.md) — the post-v1.0 patch: diagnosis and fix for a real desktop-hang bug, plus the unlabeled-button UX fix

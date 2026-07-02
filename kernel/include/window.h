@@ -20,6 +20,18 @@
 #define WINDOW_MAXIMIZE_BUTTON_GAP 4
 #define BUTTON_LABEL_MAX 16
 
+/* Milestone 21.1: a window's rightmost/bottommost WINDOW_RESIZE_MARGIN
+ * pixels (measured from the outer edge, spanning the full titlebar+body
+ * rect) are drag-to-resize handles instead of drag-to-move/click targets -
+ * checked after the close/minimize/maximize buttons but before the
+ * ordinary titlebar-drag region, so grabbing the actual edge always
+ * resizes. WINDOW_MIN_WIDTH/HEIGHT are body-size floors a resize can't
+ * shrink past (arbitrary but generous enough that every existing window's
+ * content - toolbars, buttons - stays usable). */
+#define WINDOW_RESIZE_MARGIN 6
+#define WINDOW_MIN_WIDTH 120
+#define WINDOW_MIN_HEIGHT 60
+
 typedef void (*button_callback_t)(void);
 
 struct button {
@@ -153,9 +165,15 @@ void window_maximize_toggle(int win_index);
  * for an invalid/closed index). */
 int window_is_maximized(int win_index);
 
+/* Milestone 21.2: rotates focus to the next non-minimized window in
+ * z-order (a stable ring rotation - see window.c for why a naive
+ * repeated raise-to-front doesn't visit every window). No-op with 0 or 1
+ * windows open, or if every open window is minimized. */
+void window_focus_next(void);
+
 /* Feeds the current mouse state into the window system: handles
- * click-to-focus, title-bar dragging, and button click dispatch. Must be
- * called once per frame, before window_composite(). */
+ * click-to-focus, title-bar dragging, edge/corner resize, and button
+ * click dispatch. Must be called once per frame, before window_composite(). */
 void window_system_update(void);
 
 /* Draws all windows back-to-front (respecting z-order), followed by the

@@ -15,12 +15,21 @@ static int dragging_window = -1; /* index into `windows`, or -1 */
 static int64_t drag_offset_x, drag_offset_y;
 static uint8_t prev_buttons = 0;
 
+/* Milestone 21.1: resize state, parallel to dragging_window above but
+ * tracking which edge(s) are active - resize_right/resize_bottom can both
+ * be set at once (grabbing the bottom-right corner resizes both
+ * dimensions together). */
+static int resizing_window = -1;
+static int resize_right = 0;
+static int resize_bottom = 0;
+
 void window_system_init(void) {
     for (int i = 0; i < MAX_WINDOWS; i++) {
         windows[i].in_use = 0;
     }
     window_count = 0;
     dragging_window = -1;
+    resizing_window = -1;
     prev_buttons = 0;
 }
 
@@ -180,6 +189,41 @@ void window_focus(int win_index) {
     raise_to_front(win_index);
 }
 
+void window_focus_next(void) {
+    /* Milestone 21.2: rotate the WHOLE z_order ring left by one (what was
+     * backmost becomes frontmost), rather than repeatedly calling
+     * raise_to_front() on "the window just behind the current front" -
+     * that naive approach only ever swaps the last two z_order entries
+     * back and forth (raising the second-from-top window to the top
+     * shifts everything between its old slot and the end down by one,
+     * which for the second-from-top slot is just a swap of the last two),
+     * so with 3+ windows the backmost one would never surface no matter
+     * how many times Alt+Tab is pressed. A full ring rotation visits every
+     * window exactly once per window_count presses instead. */
+    if (window_count <= 1) {
+        return;
+    }
+    for (int step = 0; step < window_count; step++) {
+        int first = z_order[0];
+        for (int i = 0; i < window_count - 1; i++) {
+            z_order[i] = z_order[i + 1];
+        }
+        z_order[window_count - 1] = first;
+
+        int new_front = z_order[window_count - 1];
+        if (!windows[new_front].minimized) {
+            serial_write_string("Alt+Tab: focus -> \"");
+            serial_write_string(windows[new_front].title);
+            serial_write_string("\"\n");
+            return;
+        }
+        /* This one's minimized - keep rotating (skip it) rather than stop
+         * here, up to window_count steps so an all-minimized desktop
+         * doesn't spin forever; if every window is minimized we end up
+         * back at the original order having changed nothing. */
+    }
+}
+
 void window_close(int win_index) {
     if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
         return;
@@ -222,6 +266,9 @@ void window_close(int win_index) {
     if (dragging_window == win_index) {
         dragging_window = -1;
     }
+    if (resizing_window == win_index) {
+        resizing_window = -1;
+    }
 }
 
 static int point_in_rect(int64_t px, int64_t py, int64_t rx, int64_t ry, uint64_t rw, uint64_t rh) {
@@ -235,6 +282,9 @@ void window_minimize(int win_index) {
     windows[win_index].minimized = 1;
     if (dragging_window == win_index) {
         dragging_window = -1;
+    }
+    if (resizing_window == win_index) {
+        resizing_window = -1;
     }
 }
 
@@ -280,6 +330,9 @@ void window_maximize_toggle(int win_index) {
     }
     if (dragging_window == win_index) {
         dragging_window = -1;
+    }
+    if (resizing_window == win_index) {
+        resizing_window = -1;
     }
 }
 
@@ -355,6 +408,34 @@ void window_system_update(void) {
                 window_minimize(hit);
             } else if (point_in_rect(mx, my, max_btn_x, max_btn_y, WINDOW_MAXIMIZE_BUTTON_SIZE, WINDOW_MAXIMIZE_BUTTON_SIZE)) {
                 window_maximize_toggle(hit);
+            } else if (!win->maximized &&
+                       (mx >= win->x + (int64_t)win->w - WINDOW_RESIZE_MARGIN && mx < win->x + (int64_t)win->w) &&
+                       (my >= win->y + (int64_t)win->h + WINDOW_TITLEBAR_HEIGHT - WINDOW_RESIZE_MARGIN &&
+                        my < win->y + (int64_t)win->h + WINDOW_TITLEBAR_HEIGHT) &&
+                       point_in_rect(mx, my, win->x, win->y, win->w, win->h + WINDOW_TITLEBAR_HEIGHT)) {
+                /* Milestone 21.1: bottom-right corner - resize both
+                 * dimensions together. Checked before the plain right-edge
+                 * and bottom-edge zones below so the corner (which overlaps
+                 * both) isn't swallowed by whichever single-edge check the
+                 * plain if/else-if chain would otherwise hit first. */
+                resizing_window = hit;
+                resize_right = 1;
+                resize_bottom = 1;
+            } else if (!win->maximized &&
+                       (mx >= win->x + (int64_t)win->w - WINDOW_RESIZE_MARGIN && mx < win->x + (int64_t)win->w) &&
+                       point_in_rect(mx, my, win->x, win->y, win->w, win->h + WINDOW_TITLEBAR_HEIGHT)) {
+                /* Right edge only. */
+                resizing_window = hit;
+                resize_right = 1;
+                resize_bottom = 0;
+            } else if (!win->maximized &&
+                       (my >= win->y + (int64_t)win->h + WINDOW_TITLEBAR_HEIGHT - WINDOW_RESIZE_MARGIN &&
+                        my < win->y + (int64_t)win->h + WINDOW_TITLEBAR_HEIGHT) &&
+                       point_in_rect(mx, my, win->x, win->y, win->w, win->h + WINDOW_TITLEBAR_HEIGHT)) {
+                /* Bottom edge only. */
+                resizing_window = hit;
+                resize_right = 0;
+                resize_bottom = 1;
             } else if (point_in_rect(mx, my, win->x, win->y, win->w, WINDOW_TITLEBAR_HEIGHT)) {
                 /* Milestone 17.1: dragging a maximized window doesn't make
                  * sense (it fills the screen) - require restoring first via
@@ -400,6 +481,43 @@ void window_system_update(void) {
 
     if (left_released_edge) {
         dragging_window = -1;
+        resizing_window = -1;
+    }
+
+    /* Milestone 21.2: no mouse click involved at all - a keyboard-only
+     * window-switch check, independent of everything else in this
+     * function. */
+    if (kb_consume_alt_tab()) {
+        window_focus_next();
+    }
+
+    if (resizing_window != -1 && (buttons & MOUSE_LEFT_BUTTON)) {
+        struct window *rw = &windows[resizing_window];
+        if (resize_right) {
+            int64_t new_w = mx - rw->x;
+            if (new_w < WINDOW_MIN_WIDTH) {
+                new_w = WINDOW_MIN_WIDTH;
+            }
+            int64_t max_w = (int64_t)fb_width() - rw->x;
+            if (new_w > max_w) {
+                new_w = max_w;
+            }
+            rw->w = (uint64_t)new_w;
+        }
+        if (resize_bottom) {
+            int64_t new_h = my - rw->y - WINDOW_TITLEBAR_HEIGHT;
+            if (new_h < WINDOW_MIN_HEIGHT) {
+                new_h = WINDOW_MIN_HEIGHT;
+            }
+            /* Leave room for the taskbar - a resize shouldn't be able to
+             * drag a window's body underneath it (matching Milestone
+             * 17.1's maximize sizing, which reserves the same strip). */
+            int64_t max_h = (int64_t)fb_height() - TASKBAR_HEIGHT - rw->y - WINDOW_TITLEBAR_HEIGHT;
+            if (new_h > max_h) {
+                new_h = max_h;
+            }
+            rw->h = (uint64_t)new_h;
+        }
     }
 
     if (dragging_window != -1 && (buttons & MOUSE_LEFT_BUTTON)) {

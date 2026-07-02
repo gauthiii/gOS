@@ -260,19 +260,19 @@ Audio and networking were explicitly scoped **out** of this plan — both are la
 
 ---
 
-### Phase 21 — Window Resize & Alt+Tab
+### Phase 21 — Window Resize & Alt+Tab ✅ Complete — see [phase21.md](phase21.md)
 **Estimated time: 8–12 hours (~1–1.5 weeks)**
 
 **Milestone 21.1: Drag-to-resize from window edges/corners**
-- [ ] Extend `window_system_update`'s hit-testing (`kernel/src/window.c`) to recognize a small margin along a window's right/bottom edge and bottom-right corner as resize handles, distinct from the existing titlebar-drag region and the Phase 16/17 minimize/maximize buttons
-- [ ] Update the window's `w`/`h` live during the drag, clamping to a sane minimum size and the screen bounds (reusing the audit-fixed clamping pattern from Finding #7 / Phase 13.2's drag clamp, extended to size as well as position)
-- [ ] Test: in QEMU, drag a window's bottom-right corner outward and inward; confirm via `screendump` that the titlebar/buttons/body all re-layout correctly at the new size with no visual corruption, and that dragging past the screen edge clamps instead of wrapping or crashing
+- [x] Extend `window_system_update`'s hit-testing (`kernel/src/window.c`) to recognize a small margin along a window's right/bottom edge and bottom-right corner as resize handles, distinct from the existing titlebar-drag region and the Phase 16/17 minimize/maximize buttons
+- [x] Update the window's `w`/`h` live during the drag, clamping to a sane minimum size and the screen bounds (reusing the audit-fixed clamping pattern from Finding #7 / Phase 13.2's drag clamp, extended to size as well as position)
+- [x] Test: in QEMU, drag a window's bottom-right corner outward and inward; confirm via `screendump` that the titlebar/buttons/body all re-layout correctly at the new size with no visual corruption, and that dragging past the screen edge clamps instead of wrapping or crashing
 
 **Milestone 21.2: Alt+Tab window switching**
-- [ ] Track Alt key state in `kernel/src/keyboard.c` (parallel to the existing Ctrl-tracking added for Ctrl+S), and on a Tab press while Alt is held, cycle window focus to the next window in z-order (skipping minimized ones per Phase 16.2), with no mouse click required
-- [ ] Test: in QEMU, open 3 windows, hold `sendkey alt` and repeat `sendkey tab`; confirm via a temporary serial debug print of the newly-focused window's title that focus cycles through all 3 in a stable, non-repeating order
+- [x] Track Alt key state in `kernel/src/keyboard.c` (parallel to the existing Ctrl-tracking added for Ctrl+S), and on a Tab press while Alt is held, cycle window focus to the next window in z-order (skipping minimized ones per Phase 16.2), with no mouse click required
+- [x] Test: in QEMU, open 3 windows, hold `sendkey alt` and repeat `sendkey tab`; confirm via a temporary serial debug print of the newly-focused window's title that focus cycles through all 3 in a stable, non-repeating order
 
-**Phase 21 exit criterion:** windows can be resized by dragging an edge/corner, and Alt+Tab cycles focus without requiring the mouse.
+**Phase 21 exit criterion:** ✅ windows can be resized by dragging an edge/corner (min-size and screen-edge clamping both verified via screendump), and Alt+Tab cycles focus through every open window in a stable, non-repeating rotation with no mouse involved. Found and fixed a real focus-cycling design bug (the original "raise the second-from-top window" approach only ever toggled between 2 windows) before the first boot, by hand-tracing the algorithm against the milestone's own test requirement. Full writeup: [phase21.md](phase21.md).
 
 ---
 
@@ -422,8 +422,8 @@ Assuming the same ~7.5 hrs/week pace as the v1 plan:
 | 20 | 20.1 Context switching | Process table + timer-driven context switch | Done | Full per-process PML4 isolation (bigger scope, user-confirmed); found+fixed a NASM `ch`/register-name collision and an under-loaded first test — see [phase20.md](phase20.md) |
 | 20 | 20.2 Process lifecycle | `exit`/`wait`/`spawn` syscalls | Done | `wait` is poll-style (non-blocking), documented as a deliberate scope cut; exact exit code (7) round-tripped parent<->child |
 | 20 | 20.3 Scheduler fairness | Multi-process no-starvation test | Done | 5 concurrent processes, heavy interleaving, all complete; desktop confirmed responsive via real click immediately after |
-| 21 | 21.1 Resize | Drag-to-resize from edge/corner | Not Started | |
-| 21 | 21.2 Alt+Tab | Keyboard window-switching | Not Started | |
+| 21 | 21.1 Resize | Drag-to-resize from edge/corner | Done | Corner/right/bottom handles, min-size + screen-edge clamping both screendump-verified — see [phase21.md](phase21.md) |
+| 21 | 21.2 Alt+Tab | Keyboard window-switching | Done | Fixed a real "only toggles last 2 windows" design bug before first boot; full-ring rotation verified via serial log + screendump across 3 windows |
 | 22 | 22.1 RTC driver | CMOS date/time read | Not Started | |
 | 22 | 22.2 Taskbar clock | Live clock widget | Not Started | |
 | 22 | 22.3 Settings persistence | Config file save/load across reboot | Not Started | |

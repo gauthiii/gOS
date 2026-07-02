@@ -17,6 +17,12 @@
 #define SC_S_SCANCODE       0x1F
 #define SC_BREAK_BIT        0x80
 #define SC_EXTENDED_PREFIX  0xE0
+/* Milestone 21.2: Left Alt only (parallel to how Ctrl-tracking started
+ * left-only before Phase 14's right-Ctrl/extended-scancode work) - Right
+ * Alt is a 0xE0-prefixed extended scancode, not needed for this milestone. */
+#define SC_LEFT_ALT_MAKE    0x38
+#define SC_LEFT_ALT_BREAK   0xB8
+#define SC_TAB_MAKE         0x0F
 
 /* Ctrl+S is reported to callers as ASCII DC3 (0x13) - the conventional
  * "device control 3 / XOFF" control code historically used for Ctrl+S in
@@ -52,6 +58,8 @@ static volatile int caps_lock_on = 0;
 static volatile int ctrl_held = 0;
 static volatile int right_ctrl_held = 0;
 static volatile int pending_extended = 0;
+static volatile int alt_held = 0;
+static volatile int alt_tab_pending = 0;
 
 #define RING_BUFFER_SIZE 256
 static volatile char ring_buffer[RING_BUFFER_SIZE];
@@ -122,6 +130,17 @@ static void keyboard_irq_handler(struct interrupt_frame *frame) {
         ctrl_held = 0;
     } else if (sc == SC_CAPS_LOCK_MAKE) {
         caps_lock_on = !caps_lock_on;
+    } else if (sc == SC_LEFT_ALT_MAKE) {
+        alt_held = 1;
+    } else if (sc == SC_LEFT_ALT_BREAK) {
+        alt_held = 0;
+    } else if (sc == SC_TAB_MAKE && alt_held) {
+        /* Milestone 21.2: consumed as a window-switch command, not a typed
+         * character - deliberately does NOT fall through to the generic
+         * char-push branch below, so Tab-while-Alt-held never also
+         * inserts a literal '\t'. */
+        alt_tab_pending = 1;
+        serial_write_string("Keyboard: Alt+Tab pressed\n");
     } else if (sc == SC_ENTER_MAKE && is_extended) {
         /* Numpad Enter (0xE0 0x1C) - functionally still produces '\n'
          * like plain Enter, but now explicitly recognized as the
@@ -158,6 +177,14 @@ void keyboard_init(void) {
 
 int kb_has_char(void) {
     return ring_tail != ring_head;
+}
+
+int kb_consume_alt_tab(void) {
+    if (alt_tab_pending) {
+        alt_tab_pending = 0;
+        return 1;
+    }
+    return 0;
 }
 
 char kb_getchar(void) {
