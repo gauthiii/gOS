@@ -980,6 +980,51 @@ void _start(void) {
     }
 #endif
 
+#if defined(GOS_TEST_LFN)
+    /* Milestone 23.1/23.2: list the root directory and print every entry's
+     * (possibly long, VFAT-reconstructed) name, so a host script can grep
+     * for the exact long name it seeded/created rather than trusting the
+     * File Manager's own rendering of it. */
+    {
+        struct fat_dirent entries[FAT32_MAX_DIRENTS];
+        int count = fat_list_dir(fat32_root_cluster(), entries, FAT32_MAX_DIRENTS);
+        serial_write_string("TEST: LFN root listing (");
+        serial_write_uint((uint64_t)count);
+        serial_write_string(" entries)\n");
+        for (int i = 0; i < count; i++) {
+            serial_write_string("TEST: LFN entry [");
+            serial_write_string(entries[i].name);
+            serial_write_string("]\n");
+        }
+    }
+#endif
+
+#if defined(GOS_TEST_LFN_WRITE)
+    /* Milestone 23.2: exercise create/write/rename/delete with long names
+     * directly (independent of the File Manager UI), leaving the final
+     * renamed file on disk so a host script can cross-check it via mdir
+     * after this boot exits. */
+    {
+        const char *long_name = "a freshly created long filename.txt";
+        const char *renamed = "a renamed long filename.txt";
+        const char *msg = "written by gOS LFN write test";
+        int created = fat_create_file(long_name);
+        serial_write_string("TEST: fat_create_file(long) = ");
+        serial_write_string(created ? "OK" : "FAIL");
+        serial_write_string("\n");
+        if (created) {
+            int wrote = fat_write_file(long_name, (const uint8_t *)msg, 30);
+            serial_write_string("TEST: fat_write_file(long) = ");
+            serial_write_string(wrote ? "OK" : "FAIL");
+            serial_write_string("\n");
+            int renamed_ok = fat_rename(long_name, renamed);
+            serial_write_string("TEST: fat_rename(long->long) = ");
+            serial_write_string(renamed_ok ? "OK" : "FAIL");
+            serial_write_string("\n");
+        }
+    }
+#endif
+
 #if defined(GOS_TEST_WINDOW_TEARDOWN_LEAK)
     /* Milestone 16.1 repro: open and close a window with a textbox 20 times
      * in a loop, checking heap_free_bytes() before the loop and after every

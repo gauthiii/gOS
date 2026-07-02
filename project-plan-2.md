@@ -298,18 +298,18 @@ Audio and networking were explicitly scoped **out** of this plan — both are la
 
 ---
 
-### Phase 23 — FAT32 Long Filename (VFAT) Support
+### Phase 23 — FAT32 Long Filename (VFAT) Support ✅ Complete — see [phase23.md](phase23.md)
 **Estimated time: 10–14 hours (~1.5–2 weeks)**
 
 **Milestone 23.1: LFN read support**
-- [ ] Parse the long-name directory entries (attribute `0x0F`, currently explicitly skipped by `fat_list_dir` per its own doc comment in `kernel/include/fat32.h`) into full long filenames, associated with their trailing short-name entry
-- [ ] Test: seed a scratch disk image via host-side `mtools`/`mcopy` with a filename longer than 8.3 (e.g. `"a much longer file name.txt"`), boot gOS, list the directory in the File Manager, confirm the full name displays correctly — cross-check against `mdir`'s own long-name output on the same image
+- [x] Parse the long-name directory entries (attribute `0x0F`, currently explicitly skipped by `fat_list_dir` per its own doc comment in `kernel/include/fat32.h`) into full long filenames, associated with their trailing short-name entry
+- [x] Test: seed a scratch disk image via host-side `mtools`/`mcopy` with a filename longer than 8.3 (e.g. `"a much longer file name.txt"`), boot gOS, list the directory in the File Manager, confirm the full name displays correctly — cross-check against `mdir`'s own long-name output on the same image
 
 **Milestone 23.2: LFN write support**
-- [ ] Extend `fat_create_file`/`fat_create_dir` (`kernel/src/fat32.c`) to generate the LFN entry set (per-entry checksum, UTF-16LE name chunks) plus a legal, unique 8.3 alias when a long name is given — the new entry-writing logic must preserve Finding #13.4's rollback-on-failure behavior in `create_entry`/`find_free_slot`, not bypass it
-- [ ] Test: in QEMU, create a new file via the File Manager's New File dialog using a long name; in a **separate, fresh QEMU process** against the same disk image, confirm the name round-trips — independently verified via `mdir` on the host
+- [x] Extend `fat_create_file`/`fat_create_dir` (`kernel/src/fat32.c`) to generate the LFN entry set (per-entry checksum, UTF-16LE name chunks) plus a legal, unique 8.3 alias when a long name is given — the new entry-writing logic must preserve Finding #13.4's rollback-on-failure behavior in `create_entry`/`find_free_slot`, not bypass it
+- [x] Test: in QEMU, create a new file via the File Manager's New File dialog using a long name; in a **separate, fresh QEMU process** against the same disk image, confirm the name round-trips — independently verified via `mdir` on the host
 
-**Phase 23 exit criterion:** long filenames read and write correctly, verified independently via `mtools` in both directions, with existing 8.3-only files unaffected.
+**Phase 23 exit criterion:** ✅ long filenames read and write correctly (create, rename, and delete all tested, both via a debug hook and via real simulated File Manager UI interaction), verified independently via `mtools` (`mdir`/`mtype`) in both directions; existing 8.3-only files and the full pre-existing regression suite (`make diagnostic`) unaffected. Four underspecified design questions (max name length, character set, short-alias scheme, rename scope) were resolved with the user before implementation. Full writeup: [phase23.md](phase23.md).
 
 ---
 
@@ -429,8 +429,8 @@ Assuming the same ~7.5 hrs/week pace as the v1 plan:
 | 22 | 22.1 RTC driver | CMOS date/time read | Done | Exact match vs. QEMU `-rtc base=...`, up to expected boot-delay drift — see [phase22.md](phase22.md) |
 | 22 | 22.2 Taskbar clock | Live clock widget | Done | Exact 10s advance verified between two precisely-timed screendumps |
 | 22 | 22.3 Settings persistence | Config file save/load across reboot | Done | Wallpaper toggle (F2) + FM geometry auto-saved; `xxd`-verified raw bytes; restored on a genuinely fresh boot |
-| 23 | 23.1 LFN read | Parse + display long filenames | Not Started | |
-| 23 | 23.2 LFN write | Create files/dirs with long names | Not Started | |
+| 23 | 23.1 LFN read | Parse + display long filenames | Done | mtools-seeded long name reconstructed exactly, cross-checked vs `mdir` — see [phase23.md](phase23.md) |
+| 23 | 23.2 LFN write | Create files/dirs with long names | Done | Create/rename/delete all tested via real File Manager UI + debug hook; `mdir`/`mtype`-verified; `make diagnostic` regression suite unaffected |
 | 24 | 24.1 Shell | Interactive shell (user-mode, or kernel-mode fallback) | Not Started | |
 | 24 | 24.2 Calculator | Window-based calculator app | Not Started | |
 | 24 | 24.3 Image viewer | BMP viewer reusing Phase 15.3's decoder | Not Started | |

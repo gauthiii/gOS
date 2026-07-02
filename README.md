@@ -72,6 +72,7 @@ gOS targets a real (or emulated) x86_64 PC. The numbers below are the environmen
 - **Real preemptive multitasking (Track C, Phase 20):** multiple independent processes, each with its own private page tables (separate `CR3`), run concurrently under genuine timer-driven preemption — proven by two processes loading at the identical virtual address with zero collision, and by serial output from concurrent processes visibly interleaving rather than running sequentially. New `spawn`/`exit`/`waitpid` syscalls round-trip a specific exit code from a spawned child back to its parent, and a 5-process fairness test confirms no starvation and a fully responsive desktop afterward. Found and fixed a NASM label/register-name collision (a data label named `ch` shadowed the `CH` register) and an initial test whose workload was too fast to actually trigger preemption — see [phase20.md](phase20.md)
 - **Window resize & Alt+Tab (Track D, Phase 21):** every window can now be resized by dragging any edge or the bottom-right corner, clamped to a sane minimum size and the screen bounds; Alt+Tab cycles focus through every open window with no mouse involved. Found and fixed a real design bug before ever booting it: the first focus-cycling implementation only ever toggled between the last two windows instead of visiting all of them, caught by hand-tracing the algorithm against the milestone's own "stable, non-repeating order" requirement — see [phase21.md](phase21.md)
 - **RTC, taskbar clock & settings persistence (Track D, Phase 22):** a CMOS real-time-clock driver feeds a live taskbar clock, verified to advance exactly 10 seconds between two precisely-timed screendumps against a QEMU-controlled clock. A new `GOS.CFG` file persists the wallpaper choice (F2 toggles between the bundled BMP and a plain gradient) and the File Manager's window geometry, auto-saved on change and restored on the next boot — independently verified byte-for-byte via `xxd` on the raw file, not just gOS's own read-back — see [phase22.md](phase22.md)
+- **FAT32 long filename (VFAT) support (Track D, Phase 23):** filenames up to 63 ASCII characters now read, display, create, rename, and delete correctly, reconstructing/generating the VFAT long-name directory entries (checksum-linked to a generated `BASENAM~1.EXT`-style short alias) that were previously just skipped. Verified in both directions against `mtools` (`mdir`/`mtype`) — host-seeded long names read correctly by gOS, and gOS-created/renamed/deleted long names read correctly from the host afterward — with the full pre-existing regression suite unaffected — see [phase23.md](phase23.md)
 
 ---
 
@@ -456,6 +457,21 @@ Moved to (200,150) and resized to 500×300 in one session; in a completely separ
 ![Fresh boot: gradient restored with no interaction](screenshots/phase22_restored_wallpaper.png)
 ![Fresh boot: File Manager at persisted geometry](screenshots/phase22_restored_fm.png)
 
+### Phase 23 — FAT32 Long Filename (VFAT) Support (Track D)
+
+**Long filenames read correctly, including host-seeded ones** ([phase23.md](phase23.md), Milestone 23.1)
+A filename longer than 8.3 (`a much longer file name.txt`), seeded onto the disk image via host-side `mtools`/`mcopy`, displays in full in the File Manager — cross-checked against `mdir`'s own long-name output on the same image.
+
+![File Manager showing long filenames, including a host-seeded one](screenshots/phase23_lfn_read.png)
+
+**Long filenames created, renamed, and deleted through the real UI** ([phase23.md](phase23.md), Milestone 23.2)
+Typed into the New File dialog via simulated keystrokes, confirmed with a click on OK — the file appears in the listing immediately, no reboot involved; then renamed and deleted the same way. Every step was independently cross-checked via `mdir`/`mtype` on the raw disk image, confirming no orphaned short- or long-name entries were left behind.
+
+![New File dialog with a long name typed in](screenshots/phase23_typed.png)
+![File Manager showing the new long-named file immediately after creation](screenshots/phase23_created_via_ui.png)
+![The same file renamed to a different long name, in place](screenshots/phase23_rename_done.png)
+![The file deleted - gone from the listing with no orphaned entries](screenshots/phase23_delete_done.png)
+
 ---
 
 ## Project structure
@@ -486,6 +502,7 @@ phase20.md           v2 Track C, Phase 2: preemptive multitasking, per-process p
                       spawn/exit/waitpid syscalls
 phase21.md           v2 Track D, Phase 1: window drag-to-resize + Alt+Tab switching
 phase22.md           v2 Track D, Phase 2: CMOS RTC + taskbar clock + GOS.CFG settings persistence
+phase23.md           v2 Track D, Phase 3: FAT32 long filename (VFAT) read/write support (Track D now complete)
 tools/userland/      standalone user-mode test programs (ring3_test.asm, hello.asm/user.ld,
                       spinner.asm/child.asm/parent.asm/proc.ld) - built independently of the
                       kernel, no libc/crt0

@@ -12,7 +12,14 @@
 #define FAT32_ATTR_LONG_NAME 0x0F
 
 #define FAT32_MAX_DIRENTS 64
-#define FAT32_NAME_MAX 13 /* "12345678.123" + NUL */
+/* 65 = up to 64 chars of (long or short) name + NUL. VFAT long-name entries
+ * (attribute 0x0F) are parsed by fat_list_dir/fat_resolve_path and are
+ * created/removed by fat_create_file/fat_create_dir/fat_rename/fat_delete_*
+ * whenever a name doesn't fit the classic 8.3 short-name form; names longer
+ * than 64 chars are rejected by the LFN-writing path. ASCII-only (gOS's
+ * keyboard driver can't produce anything else); short aliases are generated
+ * via a simple "BASENAM~1.EXT" scheme, trying ~1 through ~9 on collision. */
+#define FAT32_NAME_MAX 65
 
 struct fat_dirent {
     char name[FAT32_NAME_MAX];
@@ -29,8 +36,11 @@ int fat32_init(void);
 uint32_t fat32_root_cluster(void);
 
 /* Lists the entries of a directory (identified by its first cluster; pass
- * fat32_root_cluster() for the root). Skips long-name and volume-label
- * entries. Returns the number of entries written to `out` (up to `max`). */
+ * fat32_root_cluster() for the root). Reconstructs VFAT long names (attr
+ * 0x0F entries checksummed against their trailing short-name entry) into
+ * out[].name; falls back to the plain 8.3 name if no valid LFN entries
+ * precede it. Skips volume-label entries. Returns the number of entries
+ * written to `out` (up to `max`). */
 int fat_list_dir(uint32_t dir_cluster, struct fat_dirent *out, int max);
 
 /* Resolves a '/'-separated path (e.g. "TESTDIR/HOSTFILE.TXT") starting from
