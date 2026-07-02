@@ -511,24 +511,42 @@ static int find_free_slot(uint32_t dir_cluster, struct dirent_location *loc) {
         if (chain_step_limit_exceeded(steps++)) {
             return 0;
         }
+        /* Tracks whether `cluster` was just allocated+linked as a
+         * directory-growth cluster THIS iteration, so a subsequent
+         * failure on the same iteration can roll it back instead of
+         * leaving it permanently linked into the parent directory's
+         * chain (marked used, contributing nothing) despite the overall
+         * create having failed. */
+        int grown_this_iter = 0;
         if (is_end_of_chain(cluster)) {
             uint32_t new_cluster = fat_alloc_cluster();
             if (new_cluster == 0) {
-                return 0; /* disk full */
+                return 0; /* disk full - nothing allocated yet to roll back */
             }
             for (uint32_t i = 0; i < cluster_bytes; i++) {
                 buf[i] = 0;
             }
             if (!fat_write_cluster(new_cluster, buf)) {
+                fat_free_chain(new_cluster); /* allocated but not yet linked - just free it */
                 return 0;
             }
             if (!fat_set_next_cluster(prev_cluster, new_cluster)) {
+                fat_free_chain(new_cluster); /* link write failed - not linked, just free it */
                 return 0;
             }
             cluster = new_cluster;
+            grown_this_iter = 1;
         }
 
         if (!fat_read_cluster(cluster, buf)) {
+            if (grown_this_iter) {
+                /* cluster is the growth cluster we just linked above -
+                 * unlink it from the parent chain and free it, rather
+                 * than leaving a permanently-linked-but-unusable cluster
+                 * behind after this create ultimately fails. */
+                fat_set_next_cluster(prev_cluster, 0x0FFFFFFF);
+                fat_free_chain(cluster);
+            }
             return 0;
         }
         uint32_t entries_per_cluster = cluster_bytes / sizeof(struct fat_dir_entry_raw);

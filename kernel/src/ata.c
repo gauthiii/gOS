@@ -116,5 +116,26 @@ int ata_write_sector(uint32_t lba, const uint8_t *buffer) {
     if (!ata_wait_not_busy()) {
         return 0;
     }
+
+    /* BSY clearing alone only means the drive finished processing the
+     * flush command - it says nothing about whether the flush (or the
+     * write itself) actually succeeded. Check ERR/DF explicitly so a
+     * real drive-reported failure isn't silently treated as success. */
+    uint8_t status = inb(ATA_PRIMARY_STATUS);
+#if defined(GOS_TEST_ATA_STATUS_CHECK)
+    static uint32_t ata_status_check_count = 0;
+    ata_status_check_count++;
+    serial_write_string("DEBUG: ATA post-flush status check #");
+    serial_write_uint(ata_status_check_count);
+    serial_write_string(" = 0x");
+    serial_write_hex64(status);
+    serial_write_string("\n");
+#endif
+    if (status & (ATA_STATUS_ERR | ATA_STATUS_DF)) {
+        serial_write_string("ATA: write/flush failed (status=0x");
+        serial_write_hex64(status);
+        serial_write_string(")\n");
+        return 0;
+    }
     return 1;
 }

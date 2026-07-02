@@ -109,14 +109,31 @@ void *kmalloc(size_t size) {
         return 0; /* OOM */
     }
 
-    /* Find the last block and extend it to cover the newly mapped space. */
+    /* Find the last block (highest address). If it's free, extend it to
+     * cover the newly mapped space - cheap and avoids fragmentation. If
+     * it's in use, extending it would silently grow a live allocation's
+     * reported size instead of creating new free space, corrupting
+     * whoever owns that block and leaving the new pages permanently
+     * unusable (kmalloc could spuriously report OOM despite the space
+     * genuinely being free). Append a brand-new free block header there
+     * instead. */
     b = heap_start;
     while (b->next) {
         b = b->next;
     }
     uint64_t old_end = (uint64_t)(b + 1) + b->size + sizeof(uint64_t);
-    b->size = heap_mapped_end - old_end + b->size;
-    *footer_of(b) = FOOTER_MAGIC;
+    if (b->is_free) {
+        b->size = heap_mapped_end - old_end + b->size;
+        *footer_of(b) = FOOTER_MAGIC;
+    } else {
+        struct block_header *new_block = (struct block_header *)old_end;
+        new_block->magic = HEADER_MAGIC;
+        new_block->size = heap_mapped_end - old_end - sizeof(struct block_header) - sizeof(uint64_t);
+        new_block->is_free = 1;
+        new_block->next = 0;
+        *footer_of(new_block) = FOOTER_MAGIC;
+        b->next = new_block;
+    }
 
     return kmalloc(size); /* retry now that a large-enough free block exists */
 }
@@ -285,8 +302,80 @@ int heap_self_test(void) {
         return 0;
     }
 
+    /* Phase 13, Milestone 13.3: prove heap_grow's "extend last block"
+     * path doesn't silently grow a LIVE block's reported size. Force the
+     * heap's highest-address block to be a large in-use allocation
+     * (sentinel), then trigger a second growth cycle with another large
+     * allocation - the fixed code must append a new free block instead
+     * of mutating sentinel's size or corrupting its data. */
+    serial_write_string("Heap self-test: forcing heap_grow to extend past a live block...\n");
+    /* Reaching the heap_grow "extend last block" path with the last
+     * block actually in-use is hard to force purely through kmalloc()'s
+     * public first-fit behavior - a split during growth always leaves a
+     * fresh FREE block as the new tail, so the very next growth just
+     * extends that (legitimately free) leftover instead. Since this test
+     * lives in the same translation unit as the allocator internals,
+     * directly mark the real tail block in-use (simulating "something
+     * else is holding it live") for a precise, deterministic repro of
+     * the exact condition heap_grow's is_free check is meant to guard. */
+    struct block_header *tail = heap_start;
+    while (tail->next) {
+        tail = tail->next;
+    }
+    int tail_was_free = tail->is_free;
+    tail->is_free = 0; /* pretend this block is a live allocation */
+    uint8_t *tail_payload = (uint8_t *)(tail + 1);
+    uint64_t tail_size_before = tail->size;
+    uint64_t stamp_len = tail_size_before < 64 ? tail_size_before : 64;
+    for (uint64_t i = 0; i < stamp_len; i++) {
+        tail_payload[i] = (uint8_t)(0xC0 + (i & 0x0F));
+    }
+
+    uint64_t grow_size = 200000; /* far larger than any existing free block, forces heap_grow */
+    uint8_t *grown = (uint8_t *)kmalloc(grow_size);
+    if (!grown) {
+        tail->is_free = tail_was_free;
+        serial_write_string("Heap self-test: FAIL (could not allocate growth-forcing block)\n");
+        return 0;
+    }
+    for (uint64_t i = 0; i < grow_size; i++) {
+        grown[i] = (uint8_t)((i + 3) & 0xFF);
+    }
+
+    int tail_size_ok = (tail->size == tail_size_before);
+    int tail_data_ok = 1;
+    for (uint64_t i = 0; i < stamp_len; i++) {
+        if (tail_payload[i] != (uint8_t)(0xC0 + (i & 0x0F))) {
+            tail_data_ok = 0;
+            break;
+        }
+    }
+    int grown_data_ok = 1;
+    for (uint64_t i = 0; i < grow_size; i++) {
+        if (grown[i] != (uint8_t)((i + 3) & 0xFF)) {
+            grown_data_ok = 0;
+            break;
+        }
+    }
+    if (!tail_size_ok || !tail_data_ok || !grown_data_ok) {
+        serial_write_string("Heap self-test: FAIL (heap_grow corrupted the live tail block - size_ok=");
+        serial_write_uint((uint64_t)tail_size_ok);
+        serial_write_string(" tail_data_ok=");
+        serial_write_uint((uint64_t)tail_data_ok);
+        serial_write_string(" grown_data_ok=");
+        serial_write_uint((uint64_t)grown_data_ok);
+        serial_write_string(")\n");
+        tail->is_free = tail_was_free;
+        return 0;
+    }
+    tail->is_free = tail_was_free; /* restore, then release both blocks normally */
+    if (!tail_was_free) {
+        kfree(tail_payload);
+    }
+    kfree(grown);
+
     serial_write_string("Heap self-test: PASS (");
     serial_write_uint(STRESS_ITERATIONS);
-    serial_write_string(" cycles clean, guard correctly detected deliberate overrun and double-free)\n");
+    serial_write_string(" cycles clean, guard correctly detected deliberate overrun, double-free, and live-block heap_grow safety)\n");
     return 1;
 }

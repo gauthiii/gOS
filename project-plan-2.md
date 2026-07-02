@@ -69,35 +69,35 @@ Fixing Track A first means Track B is built on a kernel whose fragile paths are 
 
 ---
 
-### Phase 13 — High-Severity Audit Fixes
-**Estimated time: 10–14 hours (~1.5–2 weeks)**
+### Phase 13 — High-Severity Audit Fixes ✅ Complete — see [phase13.md](phase13.md)
+**Estimated time: 10–14 hours (~1.5–2 weeks) — actual: ~9.25 hours**
 
 **Milestone 13.1: ATA write-path error checking**
-- [ ] In `ata_write_sector` (`kernel/src/ata.c`), check `ERR`/`DF` status bits after the `ATA_CMD_CACHE_FLUSH` completes, not just `BSY` clearing; propagate a failure return up through `fat_write_file`/directory-entry writers
-- [ ] Test: in QEMU, this is hard to fault-inject on a virtual ATA device directly — instead, add a temporary debug build that forces the ERR bit check path to run against a real post-flush status read, confirm the status-read code path executes and returns success on the normal (working) disk; note in the fix commit that true fault-injection would require QEMU's `-drive` error-injection options (`werror=stop`) as a follow-up if regression testing is ever needed
+- [x] In `ata_write_sector` (`kernel/src/ata.c`), check `ERR`/`DF` status bits after the `ATA_CMD_CACHE_FLUSH` completes, not just `BSY` clearing; propagate a failure return up through `fat_write_file`/directory-entry writers
+- [x] Test: in QEMU, this is hard to fault-inject on a virtual ATA device directly — instead, add a temporary debug build that forces the ERR bit check path to run against a real post-flush status read, confirm the status-read code path executes and returns success on the normal (working) disk; note in the fix commit that true fault-injection would require QEMU's `-drive` error-injection options (`werror=stop`) as a follow-up if regression testing is ever needed
 
 **Milestone 13.2: Window drag negative-coordinate clamping**
-- [ ] Clamp window x/y to `>= 0` (and reasonable upper bounds against screen width/height) in the drag-update path (`kernel/src/window.c:281-282`) before it reaches `fb_draw_rect`'s `uint64_t` params
-- [ ] Test: in QEMU, drag a window fully past the top-left screen edge using the mouse; confirm the window remains visibly rendered (clipped at 0,0) instead of disappearing, by visual inspection of a QEMU screenshot (`screendump`) before/after the fix
+- [x] Clamp window x/y to `>= 0` (and reasonable upper bounds against screen width/height) in the drag-update path (`kernel/src/window.c:281-282`) before it reaches `fb_draw_rect`'s `uint64_t` params
+- [x] Test: in QEMU, drag a window fully past the top-left screen edge using the mouse; confirm the window remains visibly rendered (clipped at 0,0) instead of disappearing, by visual inspection of a QEMU screenshot (`screendump`) before/after the fix
 
 **Milestone 13.3: `heap_grow` free-block check**
-- [ ] In `heap_grow` (`kernel/src/heap.c:112-121`), check the highest-address block's `is_free` flag before extending it; if it's in-use, append a new free block header instead of mutating the live allocation's `size`
-- [ ] Test: in QEMU, add a temporary debug sequence that allocates a block, deliberately makes it the heap's highest-address block, keeps it allocated, then forces `heap_grow` (e.g. by exhausting remaining free space with further allocations); confirm the live block's reported size is unchanged after grow and the new space appears as a separate free block (verify via a heap-walk debug dump over serial)
+- [x] In `heap_grow` (`kernel/src/heap.c:112-121`), check the highest-address block's `is_free` flag before extending it; if it's in-use, append a new free block header instead of mutating the live allocation's `size`
+- [x] Test: in QEMU, add a temporary debug sequence that allocates a block, deliberately makes it the heap's highest-address block, keeps it allocated, then forces `heap_grow` (e.g. by exhausting remaining free space with further allocations); confirm the live block's reported size is unchanged after grow and the new space appears as a separate free block (verify via a heap-walk debug dump over serial)
 
 **Milestone 13.4: `create_entry` rollback completeness**
-- [ ] In `create_entry` (`kernel/src/fat32.c:591-600`), track the directory-growth cluster allocation and free it (via `fat_free_chain` or equivalent) if the subsequent `find_free_slot` step fails, mirroring the existing data-cluster rollback
-- [ ] Test: in QEMU, fill a directory to force `find_free_slot`'s directory-growth path, then induce a failure partway (e.g. simulate disk-full by shrinking a scratch image's free cluster count) and confirm via a post-boot FAT free-cluster count check (dump free cluster count over serial before/after the failed create) that no cluster leaked
+- [x] In `create_entry` (`kernel/src/fat32.c:591-600`), track the directory-growth cluster allocation and free it (via `fat_free_chain` or equivalent) if the subsequent `find_free_slot` step fails, mirroring the existing data-cluster rollback
+- [x] Test: in QEMU, fill a directory to force `find_free_slot`'s directory-growth path, then induce a failure partway (e.g. simulate disk-full by shrinking a scratch image's free cluster count) and confirm via a post-boot FAT free-cluster count check (dump free cluster count over serial before/after the failed create) that no cluster leaked
 
 **Milestone 13.5: `vmm_unmap_page()` + TLB invalidation**
-- [ ] Implement `vmm_unmap_page(virt)` in `kernel/src/vmm.c`, clearing the relevant PTE and issuing `invlpg` for the unmapped address
-- [ ] Test: in QEMU, add a temporary debug call that maps a virtual address to physical page A, writes a known value, remaps the same virtual address to physical page B via unmap+map, writes a different value, then reads back through the virtual address; confirm the read reflects page B's value (no stale TLB entry) — without the fix, this same test should reproducibly show the stale page A value first, then pass after the fix
+- [x] Implement `vmm_unmap_page(virt)` in `kernel/src/vmm.c`, clearing the relevant PTE and issuing `invlpg` for the unmapped address
+- [x] Test: in QEMU, add a temporary debug call that maps a virtual address to physical page A, writes a known value, remaps the same virtual address to physical page B via unmap+map, writes a different value, then reads back through the virtual address; confirm the read reflects page B's value (no stale TLB entry) — without the fix, this same test should reproducibly show the stale page A value first, then pass after the fix
 
 **Milestone 13.6: Stale-window-after-close in button-dispatch loop**
-- [ ] In `window_close` (`kernel/src/window.c:175-196`), clear `buttons[]`, `custom_click`, `custom_render`, `textbox_buffer` (not just `in_use`) so a closed slot is fully inert
-- [ ] In the button-dispatch loop (`kernel/src/window.c:260-268`), re-check `win->in_use` after each `on_click()` callback before continuing to iterate that window's remaining button rects, so a self-closing callback can't cause further stale dispatch
-- [ ] Test: in QEMU, modify a debug/test dialog to have two overlapping button rects where the first button's callback closes the window; click the overlap point and confirm (via serial log added temporarily) the second button's callback does NOT fire post-close; revert the debug overlap after confirming
+- [x] In `window_close` (`kernel/src/window.c:175-196`), clear `buttons[]`, `custom_click`, `custom_render`, `textbox_buffer` (not just `in_use`) so a closed slot is fully inert
+- [x] In the button-dispatch loop (`kernel/src/window.c:260-268`), re-check `win->in_use` after each `on_click()` callback before continuing to iterate that window's remaining button rects, so a self-closing callback can't cause further stale dispatch
+- [x] Test: in QEMU, modify a debug/test dialog to have two overlapping button rects where the first button's callback closes the window; click the overlap point and confirm (via serial log added temporarily) the second button's callback does NOT fire post-close; revert the debug overlap after confirming
 
-**Phase 13 exit criterion:** all 6 High findings closed, each with a QEMU-verified test.
+**Phase 13 exit criterion:** ✅ all 6 High findings closed, each with a QEMU-verified test (13.1/13.4's specific failure branches verified via regression testing + code review, since they require genuine ATA I/O faults not practical to inject on QEMU's emulated disk). Full writeup, including two redesigned reproductions and one test-design flaw caught before it mattered: [phase13.md](phase13.md).
 
 ---
 
@@ -218,19 +218,19 @@ Assuming the same ~7.5 hrs/week pace as the v1 plan:
 | 12 | 12.4 FAT cycle detection | QEMU test: cyclic FAT chain doesn't hang | Done | Pre-fix build hung 35+s confirmed via `info registers` |
 | 12 | 12.5 IST double-fault | Wire TSS `ist1` + IDT gates | Done | Dedicated 16KiB `ist1_stack` |
 | 12 | 12.5 IST double-fault | QEMU test: stack overflow uses IST stack | Done | Pre-fix triple-faulted (frozen, no panic screen); post-fix RSP confirmed inside ist1_stack bounds |
-| 13 | 13.1 ATA write ERR/DF | Check ERR/DF after cache flush | Not Started | |
-| 13 | 13.1 ATA write ERR/DF | Verify status-read path executes | Not Started | |
-| 13 | 13.2 Drag clamping | Clamp window drag x/y | Not Started | |
-| 13 | 13.2 Drag clamping | QEMU test: window visible after edge drag | Not Started | |
-| 13 | 13.3 heap_grow free check | Add `is_free` check before block extension | Not Started | |
-| 13 | 13.3 heap_grow free check | QEMU test: grow doesn't corrupt live block | Not Started | |
-| 13 | 13.4 create_entry rollback | Free directory-growth cluster on failure | Not Started | |
-| 13 | 13.4 create_entry rollback | QEMU test: no cluster leak on partial failure | Not Started | |
-| 13 | 13.5 vmm_unmap_page | Implement unmap + invlpg | Not Started | |
-| 13 | 13.5 vmm_unmap_page | QEMU test: remap reflects new page, no stale TLB | Not Started | |
-| 13 | 13.6 Stale-window dispatch | Clear window state fully on close | Not Started | |
-| 13 | 13.6 Stale-window dispatch | Re-check `in_use` in dispatch loop | Not Started | |
-| 13 | 13.6 Stale-window dispatch | QEMU test: overlapping-button close scenario | Not Started | |
+| 13 | 13.1 ATA write ERR/DF | Check ERR/DF after cache flush | Done | Fault injection not practical on QEMU IDE; 1525-write regression test instead |
+| 13 | 13.1 ATA write ERR/DF | Verify status-read path executes | Done | |
+| 13 | 13.2 Drag clamping | Clamp window drag x/y | Done | Also capped upper bound at screen edge minus titlebar height |
+| 13 | 13.2 Drag clamping | QEMU test: window visible after edge drag | Done | Pre-fix: window body vanished, only close-button fragment floated |
+| 13 | 13.3 heap_grow free check | Add `is_free` check before block extension | Done | See [phase13.md](phase13.md) for two failed repro attempts before the working one |
+| 13 | 13.3 heap_grow free check | QEMU test: grow doesn't corrupt live block | Done | Pre-fix: kmalloc spuriously reported OOM with 202MiB free |
+| 13 | 13.4 create_entry rollback | Free directory-growth cluster on failure | Done | 3 rollback branches added to `find_free_slot` |
+| 13 | 13.4 create_entry rollback | QEMU test: no cluster leak on partial failure | Done | Failure branches need ATA faults (code review); success path live-tested via 20-file forced growth |
+| 13 | 13.5 vmm_unmap_page | Implement unmap + invlpg | Done | |
+| 13 | 13.5 vmm_unmap_page | QEMU test: remap reflects new page, no stale TLB | Done | First test design was a false negative (write-after-remap self-consistent); redesigned |
+| 13 | 13.6 Stale-window dispatch | Clear window state fully on close | Done | |
+| 13 | 13.6 Stale-window dispatch | Re-check `in_use` in dispatch loop | Done | |
+| 13 | 13.6 Stale-window dispatch | QEMU test: overlapping-button close scenario | Done | Pre-fix: both callbacks fired via real simulated mouse click |
 | 14 | 14.0 README update | Update README (post-Track-A pass) | Not Started | |
 | 14 | 14.1 Medium fixes | #12 Demo windows auto-close | Not Started | |
 | 14 | 14.1 Medium fixes | #13 0xE0 extended scancode handling | Not Started | |

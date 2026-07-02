@@ -42,6 +42,48 @@ void vmm_map_page(uint64_t virt, uint64_t phys, uint64_t flags) {
     pt[pt_i] = (phys & ADDR_MASK) | flags | PAGE_PRESENT;
 }
 
+/* Walks the page tables for `virt` without creating any missing levels
+ * (unlike table_get_or_create). Returns 0 if any level above the PT
+ * isn't present - the page can't be mapped in that case, so there's
+ * nothing to unmap. */
+static uint64_t *table_get_existing(uint64_t *table, uint64_t index) {
+    if (!(table[index] & PAGE_PRESENT)) {
+        return 0;
+    }
+    return phys_to_virt(table[index] & ADDR_MASK);
+}
+
+void vmm_unmap_page(uint64_t virt) {
+    uint64_t pml4_i = (virt >> 39) & 0x1FF;
+    uint64_t pdpt_i = (virt >> 30) & 0x1FF;
+    uint64_t pd_i   = (virt >> 21) & 0x1FF;
+    uint64_t pt_i   = (virt >> 12) & 0x1FF;
+
+    uint64_t *pdpt = table_get_existing(pml4_virt, pml4_i);
+    if (!pdpt) {
+        return;
+    }
+    uint64_t *pd = table_get_existing(pdpt, pdpt_i);
+    if (!pd) {
+        return;
+    }
+    if (pd[pd_i] & PAGE_HUGE) {
+        /* A 2MiB huge page covers this address - not something
+         * vmm_unmap_page (a 4KiB-granularity API) can partially unmap.
+         * Nothing in the codebase currently maps a virtual address this
+         * function would be called on via a huge page, so this is a
+         * documented limitation rather than a silent wrong unmap. */
+        return;
+    }
+    uint64_t *pt = table_get_existing(pd, pd_i);
+    if (!pt) {
+        return;
+    }
+
+    pt[pt_i] = 0;
+    __asm__ volatile ("invlpg (%0)" : : "r"(virt) : "memory");
+}
+
 /* Maps a 2MiB-aligned region using PD-level huge pages (PS bit set),
  * avoiding one full level of 4KiB page-table allocations. Used only for
  * the bulk identity/HHDM mapping of physical RAM, where per-page

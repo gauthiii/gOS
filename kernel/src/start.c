@@ -64,6 +64,28 @@ static void on_test_button_click(void) {
     serial_write_string(")\n");
 }
 
+#if defined(GOS_TEST_STALE_WINDOW_DISPATCH)
+/* Phase 13, Milestone 13.6 repro: two deliberately-overlapping buttons in
+ * the same window - button 0 (dispatched first) closes the window from
+ * inside its own on_click(), button 1 (same rect, dispatched second)
+ * just increments a counter. Before the fix, the dispatch loop kept
+ * iterating win->buttons[] after button 0's callback closed the window,
+ * still firing button 1's callback against the now-stale (but not yet
+ * cleared) slot. */
+static int stale_test_win = -1;
+static uint64_t stale_test_second_fired = 0;
+
+static void on_stale_test_close(void) {
+    serial_write_string("TEST: stale-dispatch button 0 fired (closing window)\n");
+    window_close(stale_test_win);
+}
+
+static void on_stale_test_second(void) {
+    stale_test_second_fired++;
+    serial_write_string("TEST: stale-dispatch button 1 fired (BUG if this appears - window should already be closed)\n");
+}
+#endif
+
 static void hcf(void) {
     for (;;) {
         __asm__ volatile ("hlt");
@@ -251,6 +273,49 @@ void _start(void) {
               kernel_address_request.response->physical_base,
               (uint64_t)__kernel_virt_start,
               (uint64_t)__kernel_virt_end);
+
+#if defined(GOS_TEST_VMM_UNMAP)
+    /* Phase 13, Milestone 13.5: map a scratch virtual address to physical
+     * page A, prime the TLB by reading through it, unmap, remap the SAME
+     * virtual address to a different physical page B, then read again
+     * through the virtual address WITHOUT any intervening write (a write
+     * would go through whatever mapping the TLB currently resolves to,
+     * confounding the result either way). Page A/B are seeded directly
+     * via their identity-mapped physical addresses (vmm_init identity-maps
+     * the first 4GiB) - an always-fresh path independent of scratch_virt's
+     * TLB state - so the final read's value alone reveals whether the
+     * remap took effect or a stale TLB entry is still resolving to A. */
+    {
+        const uint64_t scratch_virt = 0xffffffff70001000ULL;
+        uint64_t phys_a = pmm_alloc_page();
+        uint64_t phys_b = pmm_alloc_page();
+        serial_write_string("TEST: vmm_unmap_page - phys_a=0x");
+        serial_write_hex64(phys_a);
+        serial_write_string(" phys_b=0x");
+        serial_write_hex64(phys_b);
+        serial_write_string("\n");
+
+        *(volatile uint64_t *)phys_a = 0xAAAAAAAAAAAAAAAAULL; /* seed A via identity map */
+        *(volatile uint64_t *)phys_b = 0xBBBBBBBBBBBBBBBBULL; /* seed B via identity map */
+
+        vmm_map_page(scratch_virt, phys_a, PAGE_WRITABLE);
+        volatile uint64_t *p = (volatile uint64_t *)scratch_virt;
+        uint64_t primed = *p; /* warm the TLB entry for scratch_virt -> phys_a */
+        serial_write_string("TEST: scratch_virt mapped to page A, primed read = 0x");
+        serial_write_hex64(primed);
+        serial_write_string("\n");
+
+        vmm_unmap_page(scratch_virt);
+        vmm_map_page(scratch_virt, phys_b, PAGE_WRITABLE);
+
+        uint64_t readback = *p; /* no intervening write - pure resolve test */
+        serial_write_string("TEST: after unmap+remap to page B (no write in between), read = 0x");
+        serial_write_hex64(readback);
+        serial_write_string(readback == 0xBBBBBBBBBBBBBBBBULL ? " (correct - reflects page B)\n" : " (STALE - still shows page A!)\n");
+
+        vmm_unmap_page(scratch_virt);
+    }
+#endif
 
     heap_init();
     heap_self_test();
@@ -469,6 +534,59 @@ void _start(void) {
             serial_write_string(del_dir ? "1" : "0");
             serial_write_string("\n");
         }
+
+#if defined(GOS_TEST_CREATE_ENTRY_ROLLBACK)
+        /* Phase 13, Milestone 13.4: force a real directory-growth cycle
+         * (16 entries fit in one 512-byte cluster; create enough files
+         * in TESTDIR to exceed that, so find_free_slot must allocate and
+         * link a new cluster for real) and confirm it completes cleanly
+         * with no leaked/dangling clusters afterward - a regression
+         * check that the create_entry/find_free_slot rollback edits
+         * didn't break the normal (non-failure) growth path. The
+         * specific write/link/read-failure rollback branches themselves
+         * require a genuine ATA I/O fault to exercise live, which (as
+         * with Milestone 13.1) isn't practical to inject on QEMU's
+         * emulated IDE disk - verified via code review instead. */
+        serial_write_string("TEST: forcing TESTDIR directory growth...\n");
+        char grow_path[32];
+        int grow_ok = 1;
+        for (int i = 0; i < 20; i++) {
+            grow_path[0] = 'T'; grow_path[1] = 'E'; grow_path[2] = 'S'; grow_path[3] = 'T';
+            grow_path[4] = 'D'; grow_path[5] = 'I'; grow_path[6] = 'R'; grow_path[7] = '/';
+            grow_path[8] = 'G';
+            grow_path[9] = (char)('0' + (i / 10));
+            grow_path[10] = (char)('0' + (i % 10));
+            grow_path[11] = '.'; grow_path[12] = 'T'; grow_path[13] = 'X'; grow_path[14] = 'T';
+            grow_path[15] = '\0';
+            if (!fat_create_file(grow_path)) {
+                grow_ok = 0;
+                serial_write_string("TEST: fat_create_file failed at i=");
+                serial_write_uint((uint64_t)i);
+                serial_write_string("\n");
+                break;
+            }
+        }
+        serial_write_string("TEST: directory growth create loop = ");
+        serial_write_string(grow_ok ? "1 (all 20 created OK)" : "0 (FAILED)");
+        serial_write_string("\n");
+        /* Clean up so the disk image is left in its original state. */
+        int grow_cleanup_ok = 1;
+        for (int i = 0; i < 20; i++) {
+            grow_path[0] = 'T'; grow_path[1] = 'E'; grow_path[2] = 'S'; grow_path[3] = 'T';
+            grow_path[4] = 'D'; grow_path[5] = 'I'; grow_path[6] = 'R'; grow_path[7] = '/';
+            grow_path[8] = 'G';
+            grow_path[9] = (char)('0' + (i / 10));
+            grow_path[10] = (char)('0' + (i % 10));
+            grow_path[11] = '.'; grow_path[12] = 'T'; grow_path[13] = 'X'; grow_path[14] = 'T';
+            grow_path[15] = '\0';
+            if (!fat_delete_file(grow_path)) {
+                grow_cleanup_ok = 0;
+            }
+        }
+        serial_write_string("TEST: directory growth cleanup = ");
+        serial_write_string(grow_cleanup_ok ? "1 (all 20 deleted OK)" : "0 (FAILED)");
+        serial_write_string("\n");
+#endif
     } else {
         serial_write_string("FAT32: PANIC - not a valid FAT32 filesystem\n");
         hcf(); /* BPB globals were never populated - any further FAT32 call
@@ -603,6 +721,15 @@ void _start(void) {
     int win_c = window_create(280, 350, 260, 160, fb_make_color(70, 200, 120), fb_make_color(30, 60, 40), "Text Editor");
     window_add_button(win_a, 20, 20, 120, 30, fb_make_color(80, 200, 80), "Click Me", on_test_button_click);
     window_enable_textbox(win_c);
+
+#if defined(GOS_TEST_STALE_WINDOW_DISPATCH)
+    stale_test_win = window_create(700, 500, 220, 120, fb_make_color(200, 200, 70), fb_make_color(60, 60, 20), "Stale Test");
+    /* Both buttons cover the exact same rect - button 0 (dispatched
+     * first) closes the window; button 1 (dispatched second) must NOT
+     * fire once button 0 has closed it. */
+    window_add_button(stale_test_win, 10, 10, 180, 80, fb_make_color(200, 80, 80), "Close", on_stale_test_close);
+    window_add_button(stale_test_win, 10, 10, 180, 80, fb_make_color(80, 80, 200), "Second", on_stale_test_second);
+#endif
     serial_write_string("Window system initialized: window_a=");
     serial_write_uint((uint64_t)win_a);
     serial_write_string(" window_b=");

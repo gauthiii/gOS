@@ -195,6 +195,25 @@ void window_close(int win_index) {
         window_count--;
     }
     windows[win_index].in_use = 0;
+    /* Clear everything else too, not just in_use - a closed slot must be
+     * fully inert. Without this, a slot reused by window_create() later
+     * would start from a still-configured previous window's buttons/
+     * callbacks/textbox content until each field happened to get
+     * overwritten, and (more immediately) the button-dispatch loop below
+     * could still invoke a just-closed window's stale callbacks if it
+     * keeps iterating that window's other button rects after one button's
+     * on_click() closes the window from inside itself. */
+    for (int i = 0; i < MAX_WIDGETS_PER_WINDOW; i++) {
+        windows[win_index].buttons[i].in_use = 0;
+        windows[win_index].buttons[i].on_click = 0;
+    }
+    windows[win_index].has_textbox = 0;
+    windows[win_index].textbox_length = 0;
+    windows[win_index].textbox_buffer[0] = '\0';
+    windows[win_index].custom_render = 0;
+    windows[win_index].custom_click = 0;
+    windows[win_index].custom_key = 0;
+    windows[win_index].user_data = 0;
     if (dragging_window == win_index) {
         dragging_window = -1;
     }
@@ -263,6 +282,18 @@ void window_system_update(void) {
                 int64_t local_y = my - (win->y + WINDOW_TITLEBAR_HEIGHT);
                 int hit_button = 0;
                 for (int i = 0; i < MAX_WIDGETS_PER_WINDOW; i++) {
+                    if (!win->in_use) {
+                        /* A previous button's on_click() this same pass
+                         * closed this window (window_close() clears
+                         * in_use and every other field). `win`/`b` below
+                         * would now point into a cleared slot - stop
+                         * iterating instead of dispatching a stale
+                         * callback (or none, since window_close() zeroed
+                         * them, but a slot reused by a NEW window_create()
+                         * before this loop finishes could otherwise fire
+                         * that new window's unrelated callback). */
+                        break;
+                    }
                     struct button *b = &win->buttons[i];
                     if (b->in_use && point_in_rect(local_x, local_y, b->x, b->y, b->w, b->h)) {
                         hit_button = 1;
@@ -271,7 +302,7 @@ void window_system_update(void) {
                         }
                     }
                 }
-                if (!hit_button && win->custom_click) {
+                if (win->in_use && !hit_button && win->custom_click) {
                     win->custom_click(win, local_x, local_y);
                 }
             }
@@ -283,8 +314,31 @@ void window_system_update(void) {
     }
 
     if (dragging_window != -1 && (buttons & MOUSE_LEFT_BUTTON)) {
-        windows[dragging_window].x = mx - drag_offset_x;
-        windows[dragging_window].y = my - drag_offset_y;
+        int64_t new_x = mx - drag_offset_x;
+        int64_t new_y = my - drag_offset_y;
+        /* Clamp to the screen edges instead of letting negative x/y reach
+         * fb_draw_rect's uint64_t params, where they'd wrap to a huge
+         * value and make the draw loop's start already past its end -
+         * the window would silently fail to render at all rather than
+         * clipping at the edge. Also cap the upper bound so a window
+         * can't be dragged so far right/down that its titlebar (the only
+         * drag handle) becomes fully unreachable. */
+        if (new_x < 0) {
+            new_x = 0;
+        }
+        if (new_y < 0) {
+            new_y = 0;
+        }
+        int64_t max_x = (int64_t)fb_width() - WINDOW_TITLEBAR_HEIGHT;
+        int64_t max_y = (int64_t)fb_height() - WINDOW_TITLEBAR_HEIGHT;
+        if (new_x > max_x) {
+            new_x = max_x;
+        }
+        if (new_y > max_y) {
+            new_y = max_y;
+        }
+        windows[dragging_window].x = new_x;
+        windows[dragging_window].y = new_y;
     }
 
     prev_buttons = buttons;

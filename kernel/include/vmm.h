@@ -17,6 +17,13 @@ void vmm_init(uint64_t hhdm_offset, uint64_t kernel_phys_base, uint64_t kernel_v
 /* Maps a single 4KiB page. virt/phys must both be 4KiB aligned. */
 void vmm_map_page(uint64_t virt, uint64_t phys, uint64_t flags);
 
+/* Unmaps a single 4KiB page (clears its PTE) and invalidates that
+ * virtual address in the TLB via invlpg, so a later remap of the same
+ * virtual address to a different physical page can't leave a stale TLB
+ * entry silently pointing at the old physical page. No-op if the page
+ * (or any page table level above it) isn't currently mapped. */
+void vmm_unmap_page(uint64_t virt);
+
 uint64_t vmm_get_pml4_phys(void);
 
 #endif
