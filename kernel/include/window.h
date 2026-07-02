@@ -10,6 +10,10 @@
 #define TEXTBOX_BUFFER_SIZE 512
 #define WINDOW_CLOSE_BUTTON_SIZE 16
 #define WINDOW_CLOSE_BUTTON_MARGIN 4
+/* Milestone 16.2: minimize button sits immediately to the left of the close
+ * button, same size, 4px gap between the two. */
+#define WINDOW_MINIMIZE_BUTTON_SIZE 16
+#define WINDOW_MINIMIZE_BUTTON_GAP 4
 #define BUTTON_LABEL_MAX 16
 
 typedef void (*button_callback_t)(void);
@@ -50,6 +54,7 @@ struct window {
     uint32_t titlebar_color;
     char title[WINDOW_TITLE_MAX];
     int in_use;
+    int minimized; /* Milestone 16.2: state/buttons/textbox preserved, just not drawn or hit-tested */
     struct button buttons[MAX_WIDGETS_PER_WINDOW];
 
     int has_textbox;
@@ -115,6 +120,20 @@ int window_at_zorder(int pos);
 /* Frees a window's slot so it can be reused by a future window_create()
  * call. Does not shift other windows' indices. */
 void window_close(int win_index);
+
+/* Milestone 16.2: hides a window from compositing/hit-testing without
+ * tearing it down - state, buttons, and textbox contents are untouched, and
+ * it stays in the z-order/taskbar list. */
+void window_minimize(int win_index);
+
+/* Clears the minimized flag, restoring the window to visible/interactive.
+ * Does not itself change z-order - callers that want the restored window
+ * focused should also call window_focus(). */
+void window_restore(int win_index);
+
+/* Returns 1 if the window is currently minimized, 0 otherwise (including
+ * for an invalid/closed index). */
+int window_is_minimized(int win_index);
 
 /* Feeds the current mouse state into the window system: handles
  * click-to-focus, title-bar dragging, and button click dispatch. Must be

@@ -49,6 +49,13 @@ void taskbar_update(void) {
         if (mx >= ex && mx < ex + ENTRY_WIDTH) {
             int win_index = window_at_zorder(slot);
             if (win_index != -1) {
+                /* Milestone 16.3: a minimized window's entry restores it
+                 * (state/buttons/textbox were preserved, just hidden) before
+                 * focusing; an already-visible window's entry just focuses
+                 * (brings to front) as before. */
+                if (window_is_minimized(win_index)) {
+                    window_restore(win_index);
+                }
                 window_focus(win_index);
             }
             return;
@@ -69,14 +76,19 @@ void taskbar_render(void) {
             continue;
         }
         int64_t ex = entry_x(slot);
-        int is_frontmost = (slot == count - 1);
-        fb_draw_rect(ex, bar_y + 3, ENTRY_WIDTH, TASKBAR_HEIGHT - 6,
-                     is_frontmost ? fb_make_color(80, 80, 130) : fb_make_color(60, 60, 65));
+        /* Milestone 16.3: "frontmost" (highlighted) means the topmost
+         * window that's actually visible - a minimized window can't be the
+         * highlighted entry even if it happens to be highest in z-order. */
+        int is_minimized = window_is_minimized(win_index);
+        int is_frontmost = !is_minimized && (slot == count - 1);
+        uint32_t bg = is_frontmost ? fb_make_color(80, 80, 130)
+                     : is_minimized ? fb_make_color(45, 45, 50)
+                     : fb_make_color(60, 60, 65);
+        fb_draw_rect(ex, bar_y + 3, ENTRY_WIDTH, TASKBAR_HEIGHT - 6, bg);
         fb_draw_rect_outline(ex, bar_y + 3, ENTRY_WIDTH, TASKBAR_HEIGHT - 6, fb_make_color(0, 0, 0), 1);
+        uint32_t fg = is_minimized ? fb_make_color(150, 150, 155) : fb_make_color(255, 255, 255);
         fb_draw_string_clipped(ex + 4, bar_y + (TASKBAR_HEIGHT - FONT_HEIGHT) / 2, win->title,
-                                fb_make_color(255, 255, 255),
-                                is_frontmost ? fb_make_color(80, 80, 130) : fb_make_color(60, 60, 65),
-                                ex, bar_y, ENTRY_WIDTH, TASKBAR_HEIGHT);
+                                fg, bg, ex, bar_y, ENTRY_WIDTH, TASKBAR_HEIGHT);
     }
 
     if (flash_message[0] != '\0' && timer_get_ticks() < flash_expiry_tick) {

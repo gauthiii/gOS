@@ -836,6 +836,49 @@ void _start(void) {
      * gradient (Milestone 15.2) if missing or malformed. */
     wallpaper_init();
 
+#if defined(GOS_TEST_WINDOW_TEARDOWN_LEAK)
+    /* Milestone 16.1 repro: open and close a window with a textbox 20 times
+     * in a loop, checking heap_free_bytes() before the loop and after every
+     * close. window.c's textbox_buffer is a fixed array embedded in struct
+     * window (not kmalloc'd), so window_close()'s Phase-13.6 field-clearing
+     * is already sufficient teardown - this test exists to prove that with
+     * a real before/after heap measurement rather than just code review. */
+    {
+        uint64_t baseline = heap_free_bytes();
+        serial_write_string("TEST: heap_free_bytes() baseline = ");
+        serial_write_uint(baseline);
+        serial_write_string("\n");
+        int leak_detected = 0;
+        for (int iter = 0; iter < 20; iter++) {
+            int w = window_create(500, 500, 300, 150, fb_make_color(70, 130, 180),
+                                   fb_make_color(30, 40, 60), "Teardown Test");
+            window_enable_textbox(w);
+            struct window *win = window_get(w);
+            const char *fill = "unsaved teardown-test content";
+            int i = 0;
+            for (; fill[i]; i++) {
+                win->textbox_buffer[i] = fill[i];
+            }
+            win->textbox_buffer[i] = '\0';
+            win->textbox_length = i;
+            window_close(w);
+            uint64_t after = heap_free_bytes();
+            if (after != baseline) {
+                leak_detected = 1;
+                serial_write_string("TEST: iteration ");
+                serial_write_uint((uint64_t)iter);
+                serial_write_string(" heap_free_bytes()=");
+                serial_write_uint(after);
+                serial_write_string(" (differs from baseline)\n");
+            }
+        }
+        uint64_t final = heap_free_bytes();
+        serial_write_string("TEST: after 20 open/close cycles, heap_free_bytes() = ");
+        serial_write_uint(final);
+        serial_write_string(leak_detected ? " (LEAK - differs from baseline at some point)\n"
+                                           : " (matches baseline every iteration - no leak)\n");
+    }
+#endif
 #if defined(GOS_TEST_WINDOW_CREATE_FEEDBACK)
     /* Finding #17 repro: fill every remaining window slot, then attempt
      * to open the File Manager (which internally calls window_create())

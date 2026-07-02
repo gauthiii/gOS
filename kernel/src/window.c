@@ -46,6 +46,7 @@ int window_create(int64_t x, int64_t y, uint64_t w, uint64_t h,
     windows[idx].titlebar_color = titlebar_color;
     windows[idx].body_color = body_color;
     windows[idx].in_use = 1;
+    windows[idx].minimized = 0;
     int i2 = 0;
     for (; i2 < WINDOW_TITLE_MAX - 1 && title && title[i2]; i2++) {
         windows[idx].title[i2] = title[i2];
@@ -195,6 +196,7 @@ void window_close(int win_index) {
         window_count--;
     }
     windows[win_index].in_use = 0;
+    windows[win_index].minimized = 0;
     /* Clear everything else too, not just in_use - a closed slot must be
      * fully inert. Without this, a slot reused by window_create() later
      * would start from a still-configured previous window's buttons/
@@ -223,9 +225,36 @@ static int point_in_rect(int64_t px, int64_t py, int64_t rx, int64_t ry, uint64_
     return px >= rx && py >= ry && px < rx + (int64_t)rw && py < ry + (int64_t)rh;
 }
 
+void window_minimize(int win_index) {
+    if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
+        return;
+    }
+    windows[win_index].minimized = 1;
+    if (dragging_window == win_index) {
+        dragging_window = -1;
+    }
+}
+
+void window_restore(int win_index) {
+    if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
+        return;
+    }
+    windows[win_index].minimized = 0;
+}
+
+int window_is_minimized(int win_index) {
+    if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
+        return 0;
+    }
+    return windows[win_index].minimized;
+}
+
 int window_point_hits_any(int64_t px, int64_t py) {
     for (int i = 0; i < window_count; i++) {
         struct window *win = &windows[z_order[i]];
+        if (win->minimized) {
+            continue; /* hidden - can't be under the click */
+        }
         if (point_in_rect(px, py, win->x, win->y, win->w, win->h + WINDOW_TITLEBAR_HEIGHT)) {
             return 1;
         }
@@ -244,11 +273,16 @@ int window_at_zorder(int pos) {
     return z_order[pos];
 }
 
-/* Finds the frontmost window whose title bar or body contains the point. */
+/* Finds the frontmost window whose title bar or body contains the point.
+ * Minimized windows are skipped - they're not drawn, so they can't be
+ * clicked. */
 static int window_at_point(int64_t px, int64_t py) {
     for (int i = window_count - 1; i >= 0; i--) {
         int idx = z_order[i];
         struct window *win = &windows[idx];
+        if (win->minimized) {
+            continue;
+        }
         if (point_in_rect(px, py, win->x, win->y, win->w, win->h + WINDOW_TITLEBAR_HEIGHT)) {
             return idx;
         }
@@ -270,8 +304,12 @@ void window_system_update(void) {
             struct window *win = &windows[hit];
             int64_t close_x = win->x + (int64_t)win->w - WINDOW_CLOSE_BUTTON_SIZE - WINDOW_CLOSE_BUTTON_MARGIN;
             int64_t close_y = win->y + WINDOW_CLOSE_BUTTON_MARGIN;
+            int64_t min_x = close_x - WINDOW_MINIMIZE_BUTTON_GAP - WINDOW_MINIMIZE_BUTTON_SIZE;
+            int64_t min_y = win->y + WINDOW_CLOSE_BUTTON_MARGIN;
             if (point_in_rect(mx, my, close_x, close_y, WINDOW_CLOSE_BUTTON_SIZE, WINDOW_CLOSE_BUTTON_SIZE)) {
                 window_close(hit);
+            } else if (point_in_rect(mx, my, min_x, min_y, WINDOW_MINIMIZE_BUTTON_SIZE, WINDOW_MINIMIZE_BUTTON_SIZE)) {
+                window_minimize(hit);
             } else if (point_in_rect(mx, my, win->x, win->y, win->w, WINDOW_TITLEBAR_HEIGHT)) {
                 dragging_window = hit;
                 drag_offset_x = mx - win->x;
@@ -350,7 +388,7 @@ void window_system_update(void) {
      * unfocused windows' text boxes are untouched even if they have one. */
     if (window_count > 0) {
         struct window *focused = &windows[z_order[window_count - 1]];
-        if (focused->has_textbox) {
+        if (focused->has_textbox && !focused->minimized) {
             while (kb_has_char()) {
                 char c = kb_getchar();
                 if (focused->custom_key && focused->custom_key(focused, c)) {
@@ -392,6 +430,18 @@ static void draw_window(struct window *win) {
         fb_draw_rect_outline(cx, cy, WINDOW_CLOSE_BUTTON_SIZE, WINDOW_CLOSE_BUTTON_SIZE, fb_make_color(0, 0, 0), 1);
         fb_draw_line(cx + 3, cy + 3, cx + WINDOW_CLOSE_BUTTON_SIZE - 4, cy + WINDOW_CLOSE_BUTTON_SIZE - 4, fb_make_color(255, 255, 255));
         fb_draw_line(cx + WINDOW_CLOSE_BUTTON_SIZE - 4, cy + 3, cx + 3, cy + WINDOW_CLOSE_BUTTON_SIZE - 4, fb_make_color(255, 255, 255));
+    }
+
+    /* Milestone 16.2: a small amber "_" minimize button immediately to the
+     * left of the close button, hit-tested in window_system_update(). */
+    {
+        int64_t close_x = win->x + (int64_t)win->w - WINDOW_CLOSE_BUTTON_SIZE - WINDOW_CLOSE_BUTTON_MARGIN;
+        int64_t mx = close_x - WINDOW_MINIMIZE_BUTTON_GAP - WINDOW_MINIMIZE_BUTTON_SIZE;
+        int64_t my = win->y + WINDOW_CLOSE_BUTTON_MARGIN;
+        fb_draw_rect(mx, my, WINDOW_MINIMIZE_BUTTON_SIZE, WINDOW_MINIMIZE_BUTTON_SIZE, fb_make_color(210, 160, 60));
+        fb_draw_rect_outline(mx, my, WINDOW_MINIMIZE_BUTTON_SIZE, WINDOW_MINIMIZE_BUTTON_SIZE, fb_make_color(0, 0, 0), 1);
+        fb_draw_line(mx + 3, my + WINDOW_MINIMIZE_BUTTON_SIZE - 5, mx + WINDOW_MINIMIZE_BUTTON_SIZE - 4,
+                     my + WINDOW_MINIMIZE_BUTTON_SIZE - 5, fb_make_color(0, 0, 0));
     }
 
     for (int i = 0; i < MAX_WIDGETS_PER_WINDOW; i++) {
@@ -444,7 +494,11 @@ static void draw_window(struct window *win) {
 
 void window_composite(void) {
     for (int i = 0; i < window_count; i++) {
-        draw_window(&windows[z_order[i]]);
+        struct window *win = &windows[z_order[i]];
+        if (win->minimized) {
+            continue; /* Milestone 16.2: state preserved, just not drawn */
+        }
+        draw_window(win);
     }
     /* Milestone 15.1: the cursor is no longer drawn here - it must sit in
      * the compositor's true top layer (above the taskbar too), so the main

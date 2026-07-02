@@ -152,24 +152,24 @@ Fixing Track A first means Track B is built on a kernel whose fragile paths are 
 
 ---
 
-### Phase 16 — Window Close, Minimize & Taskbar
+### Phase 16 — Window Close, Minimize & Taskbar ✅ Complete — see [phase16.md](phase16.md)
 **Estimated time: 14–20 hours (~2–2.5 weeks)**
 
 **Milestone 16.1: Real window teardown on close**
-- [ ] Extend `window_close` (already touched in Phase 13.6) to fully clear `buttons[]`, free any owned heap allocations (e.g. `textbox_buffer` via `kfree`), and reset all callback pointers, leaving the slot genuinely inert and reusable
-- [ ] Test: in QEMU, open and close a window with a textbox (e.g. the editor) 20 times in a loop; confirm heap free-byte count (via serial debug dump) returns to its pre-loop baseline after each close, with no growth (no leak) and no corruption on the 20th reopen
+- [x] Extend `window_close` (already touched in Phase 13.6) to fully clear `buttons[]`, free any owned heap allocations (e.g. `textbox_buffer` via `kfree`), and reset all callback pointers, leaving the slot genuinely inert and reusable
+- [x] Test: in QEMU, open and close a window with a textbox (e.g. the editor) 20 times in a loop; confirm heap free-byte count (via serial debug dump) returns to its pre-loop baseline after each close, with no growth (no leak) and no corruption on the 20th reopen
 
 **Milestone 16.2: Minimized window state**
-- [ ] Add a `minimized` flag to the window struct; compositor's draw list skips windows with `minimized == true`
-- [ ] Add a minimize trigger (button or keyboard shortcut) that sets the flag without closing/tearing down the window (state, buttons, textbox contents all preserved)
-- [ ] Test: in QEMU, minimize a window with unsaved editor text, confirm it disappears from the screen (`screendump` check), then restore it (via a temporary debug key) and confirm the unsaved text is still present
+- [x] Add a `minimized` flag to the window struct; compositor's draw list skips windows with `minimized == true`
+- [x] Add a minimize trigger (button or keyboard shortcut) that sets the flag without closing/tearing down the window (state, buttons, textbox contents all preserved)
+- [x] Test: in QEMU, minimize a window with unsaved editor text, confirm it disappears from the screen (`screendump` check), then restore it (via a temporary debug key) and confirm the unsaved text is still present
 
 **Milestone 16.3: Persistent taskbar**
-- [ ] Add a taskbar region (e.g. bottom strip) drawn by the compositor showing one entry per open window (including minimized ones), labeled by window title
-- [ ] Wire up click handling on taskbar entries: clicking a minimized window's entry restores and focuses it; clicking an already-visible window's entry focuses it (brings to front)
-- [ ] Test: in QEMU, open 3 windows, minimize 2, confirm the taskbar shows all 3 entries; click each minimized entry and confirm it restores to its prior geometry and gains focus (verify z-order via `screendump`)
+- [x] Add a taskbar region (e.g. bottom strip) drawn by the compositor showing one entry per open window (including minimized ones), labeled by window title
+- [x] Wire up click handling on taskbar entries: clicking a minimized window's entry restores and focuses it; clicking an already-visible window's entry focuses it (brings to front)
+- [x] Test: in QEMU, open 3 windows, minimize 2, confirm the taskbar shows all 3 entries; click each minimized entry and confirm it restores to its prior geometry and gains focus (verify z-order via `screendump`)
 
-**Phase 16 exit criterion:** close/minimize/taskbar all functional in QEMU with no heap growth across repeated open/close/minimize cycles.
+**Phase 16 exit criterion:** ✅ close/minimize/taskbar all functional in QEMU with no heap growth across repeated open/close/minimize cycles (3,341,040 bytes free before and after 20 open/close iterations). Full writeup: [phase16.md](phase16.md).
 
 ---
 
@@ -248,9 +248,9 @@ Assuming the same ~7.5 hrs/week pace as the v1 plan:
 | 15 | 15.1 Cursor | Design + render arrow cursor | Done | 12x19 arrow w/ transparency; also fixed cursor-under-taskbar draw order — see [phase15.md](phase15.md) |
 | 15 | 15.2 Wallpaper | Solid/gradient wallpaper layer | Done | Vertical blue→teal gradient (fallback layer for 15.3) |
 | 15 | 15.3 Wallpaper (stretch) | BMP/raw loader + bundled image | Done | 24bpp BMP off FAT32; screendump pixel-matched source BMP (0/2000 mismatches); missing + corrupted-file fallbacks verified |
-| 16 | 16.1 Window teardown | Full close cleanup (buttons, heap, callbacks) | Not Started | |
-| 16 | 16.2 Minimize | Minimized flag + compositor skip | Not Started | |
-| 16 | 16.3 Taskbar | Taskbar render + restore/focus click handling | Not Started | |
+| 16 | 16.1 Window teardown | Full close cleanup (buttons, heap, callbacks) | Done | Already complete since Phase 13.6 (no heap-owned window fields exist); added `heap_free_bytes()` + a 20-cycle regression test to prove it — see [phase16.md](phase16.md) |
+| 16 | 16.2 Minimize | Minimized flag + compositor skip | Done | Titlebar "_" button (user chose titlebar-button over keyboard-shortcut); unsaved editor text survives minimize/restore |
+| 16 | 16.3 Taskbar | Taskbar render + restore/focus click handling | Done | Minimized entries dimmed; 3-window/2-minimized test confirms exact geometry + focus restored on click |
 | 17 | 17.1 Maximize (optional) | Maximize/restore geometry toggle | Not Started | |
 | — | 14.0 README update | Update README (post-Track-B pass) | Not Started | |
 
