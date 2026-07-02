@@ -110,6 +110,15 @@ isr_common_stub:
     mov rdi, rsp
     call isr_handler
 
+; Milestone 20.1: exposed so scheduler_entry.asm's scheduler_enter() can
+; jump straight in here after pointing RSP at a process's saved
+; interrupt_frame - since that struct's layout exactly matches what this
+; pop sequence expects (it IS this exact stack shape, just constructed by
+; C code instead of a real interrupt), bootstrapping a brand-new process
+; and resuming a previously-preempted one both end up running the
+; identical restore-and-iretq path, with zero duplicated logic.
+global isr_common_epilogue
+isr_common_epilogue:
     pop r15
     pop r14
     pop r13

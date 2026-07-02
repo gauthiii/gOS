@@ -129,3 +129,7 @@ void gdt_init(void) {
     serial_write_string("\n");
 #endif
 }
+
+void gdt_set_tss_rsp0(uint64_t rsp0) {
+    tss.rsp0 = rsp0;
+}

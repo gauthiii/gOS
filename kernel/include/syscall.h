@@ -6,8 +6,10 @@
 /* Milestone 19.2: minimal syscall numbers, deliberately matching Linux's
  * x86_64 numbering for `write`/`exit` (1 and 60) purely as a familiar
  * convention - gOS's ABI isn't Linux-compatible in any other way. */
-#define SYS_WRITE 1
-#define SYS_EXIT  60
+#define SYS_WRITE   1
+#define SYS_SPAWN   2 /* Milestone 20.2: rdi=path pointer, rsi=path length -> pid or -1 */
+#define SYS_WAITPID 3 /* Milestone 20.2: rdi=pid -> exit code if that pid is a zombie (reaps it), else -1 */
+#define SYS_EXIT    60
 
 /* Dispatches a syscall trapped via SYSCALL_VECTOR (int 0x80). Convention:
  * rax = syscall number, rdi/rsi/rdx = args, return value written back into

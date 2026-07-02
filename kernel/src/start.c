@@ -21,6 +21,7 @@
 #include <wallpaper.h>
 #include <usermode.h>
 #include <syscall.h>
+#include <process.h>
 
 extern uint8_t __kernel_virt_start[];
 extern uint8_t __kernel_virt_end[];
@@ -683,6 +684,50 @@ void _start(void) {
         serial_write_string("TEST: usermode_run_elf(\"HELLO.ELF\") = ");
         serial_write_string(elf_ok ? "1 (OK)" : "0 (FAILED)");
         serial_write_string("\n");
+#endif
+#if defined(GOS_TEST_MULTITASKING)
+        /* Milestone 20.1: spawn two independent processes (their own
+         * private page tables, own kernel stacks) and let the timer-driven
+         * scheduler run them to completion - each writes its own marker
+         * character with a spin delay in between, so a genuinely
+         * interleaved serial log (not two runs back-to-back) is direct
+         * proof of real preemption. */
+        process_init();
+        serial_write_string("TEST: Milestone 20.1 - spawning SPIN1.ELF and SPIN2.ELF...\n");
+        int spin1 = process_spawn("SPIN1.ELF");
+        int spin2 = process_spawn("SPIN2.ELF");
+        serial_write_string("TEST: spin1=");
+        serial_write_uint((uint64_t)(spin1 < 0 ? 0xFFFFFFFF : (uint64_t)spin1));
+        serial_write_string(" spin2=");
+        serial_write_uint((uint64_t)(spin2 < 0 ? 0xFFFFFFFF : (uint64_t)spin2));
+        serial_write_string("\n");
+        scheduler_run_until_done();
+        serial_write_string("TEST: Milestone 20.1 complete\n");
+
+        /* Milestone 20.2: parent spawns a child, polls SYS_WAITPID until
+         * the child's exit code (7) comes back - proves the process
+         * lifecycle syscalls (spawn/exit/waitpid) round-trip correctly. */
+        serial_write_string("TEST: Milestone 20.2 - spawning PARENT.ELF (spawns CHILD.ELF itself)...\n");
+        int parent_pid = process_spawn("PARENT.ELF");
+        serial_write_string("TEST: parent_pid=");
+        serial_write_uint((uint64_t)(parent_pid < 0 ? 0xFFFFFFFF : (uint64_t)parent_pid));
+        serial_write_string("\n");
+        scheduler_run_until_done();
+        serial_write_string("TEST: Milestone 20.2 complete\n");
+
+        /* Milestone 20.3: 5 concurrent processes under load - confirm none
+         * starve (every marker appears the full ITERS times) and, right
+         * after, that the desktop's own main loop is still fully alive and
+         * interactive (proven the same way Phase 19 proved it: a real
+         * simulated click reaching the File Manager after this demo). */
+        serial_write_string("TEST: Milestone 20.3 - spawning 5 concurrent processes...\n");
+        process_spawn("SPIN1.ELF");
+        process_spawn("SPIN2.ELF");
+        process_spawn("SPIN3.ELF");
+        process_spawn("SPIN4.ELF");
+        process_spawn("SPIN5.ELF");
+        scheduler_run_until_done();
+        serial_write_string("TEST: Milestone 20.3 complete\n");
 #endif
     } else {
         serial_write_string("FAT32: PANIC - not a valid FAT32 filesystem\n");

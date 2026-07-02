@@ -95,7 +95,22 @@ iso: build
 # Milestone 19.3: also bundles the real user-mode ELF64 test binary
 # (HELLO.ELF), read and executed by usermode_run_elf() at boot under
 # GOS_TEST_USERMODE.
-DISK_RECIPE := truncate -s 64M $(DISK_IMG) && mformat -F -i $(DISK_IMG) -v GOSDISK :: && mcopy -i $(DISK_IMG) tools/wallpaper.bmp ::WALLPAPR.BMP && mcopy -i $(DISK_IMG) tools/userland/hello.elf ::HELLO.ELF
+# Milestone 20.1/20.2: also bundles the Phase 20 multi-process test
+# binaries (SPIN1-5.ELF, CHILD.ELF, PARENT.ELF), read and run by
+# process_spawn() under GOS_TEST_MULTITASKING.
+PROC_BINS := tools/userland/spin1.elf tools/userland/spin2.elf tools/userland/spin3.elf \
+             tools/userland/spin4.elf tools/userland/spin5.elf \
+             tools/userland/child.elf tools/userland/parent.elf
+DISK_RECIPE := truncate -s 64M $(DISK_IMG) && mformat -F -i $(DISK_IMG) -v GOSDISK :: && \
+	mcopy -i $(DISK_IMG) tools/wallpaper.bmp ::WALLPAPR.BMP && \
+	mcopy -i $(DISK_IMG) tools/userland/hello.elf ::HELLO.ELF && \
+	mcopy -i $(DISK_IMG) tools/userland/spin1.elf ::SPIN1.ELF && \
+	mcopy -i $(DISK_IMG) tools/userland/spin2.elf ::SPIN2.ELF && \
+	mcopy -i $(DISK_IMG) tools/userland/spin3.elf ::SPIN3.ELF && \
+	mcopy -i $(DISK_IMG) tools/userland/spin4.elf ::SPIN4.ELF && \
+	mcopy -i $(DISK_IMG) tools/userland/spin5.elf ::SPIN5.ELF && \
+	mcopy -i $(DISK_IMG) tools/userland/child.elf ::CHILD.ELF && \
+	mcopy -i $(DISK_IMG) tools/userland/parent.elf ::PARENT.ELF
 DISK_RECIPE_HASH := $(shell echo "$(DISK_RECIPE)" | shasum -a 256 | cut -d' ' -f1)
 DISK_HASH_FILE := disk_images/.disk_recipe_hash
 
@@ -110,7 +125,7 @@ check-disk-recipe:
 		rm -f $(DISK_IMG); \
 	fi
 
-$(DISK_IMG): tools/wallpaper.bmp tools/userland/hello.elf
+$(DISK_IMG): tools/wallpaper.bmp tools/userland/hello.elf $(PROC_BINS)
 	@mkdir -p disk_images
 	$(DISK_RECIPE)
 
@@ -126,6 +141,29 @@ tools/userland/hello.elf: tools/userland/hello.asm tools/userland/user.ld
 	$(NASM) -f elf64 tools/userland/hello.asm -o $(BUILD_DIR)/userland_hello.o
 	$(LD) -T tools/userland/user.ld -nostdlib -static -no-pie -z max-page-size=0x1000 \
 		$(BUILD_DIR)/userland_hello.o -o $@
+
+# Milestone 20.1/20.3: five copies of spinner.asm, each with a distinct
+# marker character/iteration count baked in at assemble time (-D), used to
+# prove real preemptive interleaving (20.1: 2 processes) and scheduler
+# fairness under load (20.3: all 5 at once).
+tools/userland/spin%.elf: tools/userland/spinner.asm tools/userland/proc.ld
+	@mkdir -p $(BUILD_DIR)
+	$(NASM) -f elf64 -DMARKER="'$*'" -DITERS=20 tools/userland/spinner.asm -o $(BUILD_DIR)/userland_spin$*.o
+	$(LD) -T tools/userland/proc.ld -nostdlib -static -no-pie -z max-page-size=0x1000 \
+		$(BUILD_DIR)/userland_spin$*.o -o $@
+
+# Milestone 20.2: parent/child spawn+waitpid test pair.
+tools/userland/child.elf: tools/userland/child.asm tools/userland/proc.ld
+	@mkdir -p $(BUILD_DIR)
+	$(NASM) -f elf64 tools/userland/child.asm -o $(BUILD_DIR)/userland_child.o
+	$(LD) -T tools/userland/proc.ld -nostdlib -static -no-pie -z max-page-size=0x1000 \
+		$(BUILD_DIR)/userland_child.o -o $@
+
+tools/userland/parent.elf: tools/userland/parent.asm tools/userland/proc.ld
+	@mkdir -p $(BUILD_DIR)
+	$(NASM) -f elf64 tools/userland/parent.asm -o $(BUILD_DIR)/userland_parent.o
+	$(LD) -T tools/userland/proc.ld -nostdlib -static -no-pie -z max-page-size=0x1000 \
+		$(BUILD_DIR)/userland_parent.o -o $@
 
 run: iso disk $(BUILD_DIR)/OVMF_VARS.fd
 	qemu-system-x86_64 \

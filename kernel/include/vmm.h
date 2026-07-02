@@ -26,4 +26,8 @@ void vmm_unmap_page(uint64_t virt);
 
 uint64_t vmm_get_pml4_phys(void);
 
+/* Milestone 20.1: per-process address spaces. */
+uint64_t vmm_create_process_pml4(void);
+void vmm_map_page_in(uint64_t target_pml4_phys, uint64_t virt, uint64_t phys, uint64_t flags);
+
 #endif
