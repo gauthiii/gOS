@@ -1,6 +1,6 @@
-### Now do Phase 17 the same way and create phase17.md in the same format as the previous phase docs. 
+### Now do Phase 18 the same way and create phase18.md in the same format as the previous phase docs. 
 
-In phase17.md, after every milestone, include: 
+In phase18.md, after every milestone, include: 
 
 - (1) a "command to test" that verifies it works and shows the expected output, and 
 - (2) a "command to see" that lets me visually/interactively observe the result (screendump-and-open for graphical output, or a live -display cocoa command for interactive verification). 

@@ -367,7 +367,18 @@ void _start(void) {
     heap_init();
     heap_self_test();
 
+#if defined(GOS_DIAGNOSTIC_BOOT)
+    /* Milestone 18.1: the full timer self-test deliberately sleeps 2000ms
+     * to measure real elapsed ticks - a genuine correctness check, but not
+     * something a normal boot needs to pay for every single time. Gated
+     * behind the same diagnostic flag as the other regression demos below;
+     * the default path just confirms the PIT is ticking at all (no sleep). */
     timer_self_test();
+#else
+    serial_write_string("Timer: PIT running (tick=");
+    serial_write_uint(timer_get_ticks());
+    serial_write_string(") - full 2000ms self-test skipped (define GOS_DIAGNOSTIC_BOOT to run it)\n");
+#endif
 
     keyboard_init();
     serial_write_string("Keyboard driver initialized (IRQ1 unmasked)\n");
@@ -716,6 +727,11 @@ void _start(void) {
         serial_write_string(free_before == free_after ? " (unchanged - no double allocation)\n" : " (BUG - second call allocated more memory)\n");
     }
 #endif
+#if defined(GOS_DIAGNOSTIC_BOOT)
+    /* Milestone 18.1: this ~2-second bouncing-rectangle animation (Milestone
+     * 5.3's original tearing/double-buffer proof) is a one-time regression
+     * demo, not something a normal boot needs to redraw every time - gated
+     * behind GOS_DIAGNOSTIC_BOOT along with the other slow demos below. */
     int64_t box_x = 0;
     int64_t box_dx = 20;
     const int64_t box_w = 80, box_h = 80;
@@ -743,14 +759,19 @@ void _start(void) {
     fb_flip();
     serial_write_string("FB: \"Hello, gOS!\" rendered via bitmap font\n");
     sleep_ms(2000);
+#endif
 
     mouse_init();
 
+#if defined(GOS_DIAGNOSTIC_BOOT)
     /* Milestone 6.1 live test: redraw the cursor at its current tracked
      * position for ~5 seconds (100 frames @ 50ms), logging whenever it
      * moves. Real movement is injected externally via the QEMU monitor's
      * `mouse_move`/`mouse_button` commands during this window - see
-     * version1/phase6.md for the exact test procedure. */
+     * version1/phase6.md for the exact test procedure. Milestone 18.1:
+     * gated behind GOS_DIAGNOSTIC_BOOT - the main desktop loop already
+     * redraws the cursor every frame, so this demo's only purpose is the
+     * standalone regression proof, not anything a normal boot needs. */
     {
         int64_t last_x = -1, last_y = -1;
         uint8_t last_buttons = 0xFF;
@@ -775,6 +796,7 @@ void _start(void) {
         }
     }
     serial_write_string("Mouse test window complete\n");
+#endif
 
     /* Milestones 6.2/6.3/6.4: two overlapping windows (proving z-order and
      * click-to-focus), one draggable by its title bar, one with a button
@@ -785,7 +807,17 @@ void _start(void) {
      * seconds via QEMU monitor mouse_move/mouse_button commands - see
      * version1/phase6.md for the exact test procedure. */
     window_system_init();
+#if defined(GOS_DIAGNOSTIC_BOOT)
+    /* Milestone 18.1: this is by far the single biggest contributor to
+     * pre-Phase-18 boot time - 150 file create/write/rename/delete cycles
+     * plus 300 window create/close cycles, each involving real ATA PIO
+     * I/O. Genuinely valuable as a regression/soak test (see Milestone
+     * 11.1), but not something a normal interactive boot should pay for
+     * every single time. */
     stress_test();
+#else
+    (void)stress_test; /* silence "defined but not used" - still referenced under GOS_DIAGNOSTIC_BOOT */
+#endif
     int win_a = window_create(150, 150, 300, 200, fb_make_color(70, 70, 200), fb_make_color(30, 30, 60), "Window A");
     int win_b = window_create(400, 250, 280, 180, fb_make_color(200, 70, 70), fb_make_color(60, 30, 30), "Window B");
     int win_c = window_create(280, 350, 260, 160, fb_make_color(70, 200, 120), fb_make_color(30, 60, 40), "Text Editor");

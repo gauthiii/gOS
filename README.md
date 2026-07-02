@@ -2,9 +2,9 @@
 
 A hobby x86_64 operating system, built completely from scratch: no existing kernel, no existing libc, no existing GUI toolkit. Everything from the UEFI boot handoff to a clickable file manager is hand-written C and x86_64 assembly.
 
-gOS boots via [Limine](https://github.com/limine-bootloader/limine) into a desktop with a background, a taskbar, and a "Files" launcher icon; draws directly to a framebuffer; runs its own windowing system with draggable/overlappable/closable windows; renders its own bitmap-font text; reads and writes a real FAT32 disk image through a hand-written ATA PIO driver; and has a graphical File Manager with full CRUD — create folders/files, open and edit text files, save with Ctrl+S, delete, and rename — all backed by the real filesystem, not a mock. Unhandled CPU exceptions show a red kernel panic screen instead of silently hanging.
+gOS boots via [Limine](https://github.com/limine-bootloader/limine) into a desktop with a background, a taskbar, and a "Files" launcher icon in about a second; draws directly to a framebuffer; runs its own windowing system with draggable/overlappable/closable windows; renders its own bitmap-font text; reads and writes a real FAT32 disk image through a hand-written ATA PIO driver; and has a graphical File Manager with full CRUD — create folders/files, open and edit text files, save with Ctrl+S, delete, and rename — all backed by the real filesystem, not a mock. Unhandled CPU exceptions show a red kernel panic screen instead of silently hanging.
 
-Development is tracked as a sequence of phases. v1.0 (Phases 0–11) is documented in [version1/PROJECT_PLAN.md](version1/PROJECT_PLAN.md), each with its own detailed write-up (`version1/phase0.md` through `version1/phase11.md`). Past v1.0, [version1/phase-patch.md](version1/phase-patch.md) documents a follow-up patch (a real hang fix plus unlabeled-button UX fix), and [version1/audit.md](version1/audit.md) is a standalone, read-only flaw audit of the whole v1.0 kernel (24 ranked findings). [project-plan-2.md](project-plan-2.md) is the v2 plan: **Track A** (fixing every audit finding) followed by **Track B** (new features), both now complete — see [phase12.md](phase12.md), [phase13.md](phase13.md), and [phase14.md](phase14.md) for Track A's three phases, and [phase15.md](phase15.md)/[phase16.md](phase16.md)/[phase17.md](phase17.md) for Track B's three.
+Development is tracked as a sequence of phases. v1.0 (Phases 0–11) is documented in [version1/PROJECT_PLAN.md](version1/PROJECT_PLAN.md), each with its own detailed write-up (`version1/phase0.md` through `version1/phase11.md`). Past v1.0, [version1/phase-patch.md](version1/phase-patch.md) documents a follow-up patch (a real hang fix plus unlabeled-button UX fix), and [version1/audit.md](version1/audit.md) is a standalone, read-only flaw audit of the whole v1.0 kernel (24 ranked findings). [project-plan-2.md](project-plan-2.md) is the v2 plan (**Track A** audit fixes + **Track B** new features, both complete) plus the start of v3 (**Track C** OS internals, **Track D** desktop/storage, **Track E** apps) — see [phase12.md](phase12.md)–[phase14.md](phase14.md) for Track A, [phase15.md](phase15.md)–[phase17.md](phase17.md) for Track B, and [phase18.md](phase18.md) for v3's first phase.
 
 ---
 
@@ -33,12 +33,14 @@ gOS targets a real (or emulated) x86_64 PC. The numbers below are the environmen
 | **Multi-user / permissions** | None — single implicit user, no privilege separation, kernel memory mapped uniformly RWX (no W^X enforcement) |
 | **Toolchain** | `x86_64-elf-gcc` (freestanding, no libc), NASM, `x86_64-elf-gdb`, built and tested on macOS + QEMU (Linux hosts work with equivalent packages) |
 
-**Status: v1.0 complete, plus post-v1.0 patch, plus Track A (all 24 audit findings fixed), plus all of Track B (Phases 15–17: cursor/wallpaper, window minimize/close/taskbar, maximize). v2 is now feature-complete per [project-plan-2.md](project-plan-2.md).** Toolchain → bootloader → interrupts → memory management → drivers → graphics → windowing → fonts/text input → FAT32 filesystem → file manager UI → CRUD operations → polish/stability (v1.0) → 5 Critical + 6 High + 12 Medium/Low audit fixes (Track A, Phases 12–14) → real arrow cursor + gradient/BMP wallpaper (Track B, Phase 15) → window minimize + persistent taskbar restore/focus (Track B, Phase 16) → window maximize/restore (Track B, Phase 17).
+**Status: v1.0 complete, plus post-v1.0 patch, plus Track A (all 24 audit findings fixed), plus all of Track B (Phases 15–17: cursor/wallpaper, window minimize/close/taskbar, maximize), plus v3 Phase 18 (boot-time cleanup).** Toolchain → bootloader → interrupts → memory management → drivers → graphics → windowing → fonts/text input → FAT32 filesystem → file manager UI → CRUD operations → polish/stability (v1.0) → 5 Critical + 6 High + 12 Medium/Low audit fixes (Track A, Phases 12–14) → real arrow cursor + gradient/BMP wallpaper (Track B, Phase 15) → window minimize + persistent taskbar restore/focus (Track B, Phase 16) → window maximize/restore (Track B, Phase 17) → default boot time cut from ~75-80s to ~1s (v3, Phase 18). Phases 19–24 (user mode/multitasking, window resize/Alt+Tab, RTC/clock/settings, long filenames, shell/calculator/image viewer) have not started yet — see [project-plan-2.md](project-plan-2.md)'s status tracker.
 
 ### Known limitations
 
-- **v1.0 scope boundaries** (still true post-Track-B): no networking, no multi-core/SMP, no sound, no USB beyond QEMU's emulated PS/2, no real package manager, no POSIX compatibility, no multi-user/permissions, no JIT/scripting layer, no fine-grained W^X page permissions (kernel mapped uniformly RWX).
-- **No free-form window resize**: a window can be dragged, minimized, and maximized/restored to its exact prior geometry, but there's no drag-an-edge-or-corner resize handle.
+- **v1.0 scope boundaries** (still true today): no networking, no multi-core/SMP, no sound, no USB beyond QEMU's emulated PS/2, no real package manager, no POSIX compatibility, no multi-user/permissions, no JIT/scripting layer, no fine-grained W^X page permissions (kernel mapped uniformly RWX).
+- **No user mode / multitasking yet (Phases 19–20, not started)**: everything runs as kernel-mode code in a single loop; no processes, no syscalls, no ELF loading.
+- **No free-form window resize**: a window can be dragged, minimized, and maximized/restored to its exact prior geometry, but there's no drag-an-edge-or-corner resize handle (planned for Phase 21).
+- **No long filenames**: FAT32 support is 8.3 names only (planned for Phase 23).
 - **Environment-specific hardware assumptions carried from v1.0**: single ATA drive on the primary master IDE channel (no secondary channel, no AHCI/NVMe), legacy 8259 PIC only (no APIC/x2APIC), PS/2 keyboard/mouse only.
 - **Known-safe-by-convention, not by construction**: `fm.c`'s double-click file identity is tracked by row index, not filename — safe today only because every listing-mutating code path calls `fm_refresh()` first (see Finding #24 in [phase14.md](phase14.md)); documented as an explicit invariant rather than hardened against.
 
@@ -63,6 +65,7 @@ gOS targets a real (or emulated) x86_64 PC. The numbers below are the environmen
 - **Cursor & wallpaper (Track B, Phase 15):** a real 12x19 arrow-shaped mouse cursor with transparency, drawn in the compositor's true top layer (above every window and the taskbar); a desktop wallpaper layer — a vertical gradient by default, or a hand-decoded 24bpp BMP image (`WALLPAPR.BMP`) bundled on the FAT32 disk image and loaded through the hardened FAT32 read path, with graceful fallback to the gradient if the file is missing or malformed — see [phase15.md](phase15.md)
 - **Window minimize & taskbar restore (Track B, Phase 16):** every window now has a titlebar minimize ("_") button alongside the close ("X") button — minimizing hides a window (state, buttons, and any unsaved textbox content fully preserved) without tearing it down; the taskbar visually dims a minimized window's entry and restores-then-focuses it on click, while an already-visible entry's click just focuses it as before; window teardown on close was verified leak-free with a real heap measurement across 20 open/close cycles — see [phase16.md](phase16.md)
 - **Window maximize/restore (Track B, Phase 17):** a third titlebar button (a teal square, toggling to two overlapping squares when maximized) fills a window to the full screen minus the taskbar, and restores it to its exact prior position and size on a second click — proven to round-trip geometry exactly via both a numeric before/after/restore log and a live visual test; dragging is disabled while maximized (restore first) — see [phase17.md](phase17.md)
+- **Fast boot (v3, Phase 18):** `make run` now reaches the interactive desktop in about a second — the old ~75-80 second boot (a bouncing-rectangle animation, a "Hello, gOS!" hold, a live mouse-cursor test window, and a 450-cycle file/window stress test, all running unconditionally on every boot) is gated behind a new `make diagnostic` build, preserving every regression check with zero loss of coverage while defaulting to a boot that's actually fast to iterate on — see [phase18.md](phase18.md)
 
 ---
 
@@ -103,15 +106,18 @@ This pulls in the `x86_64-elf-binutils` cross-toolchain as a dependency of `x86_
 make run
 ```
 
-This one command: builds the kernel, packages it with Limine into a bootable ISO, creates a 64 MiB FAT32 disk image (first run only — it's preserved across rebuilds so file writes persist), and launches it in QEMU with a real graphical window (mouse and keyboard both work normally in this window).
+This one command: builds the kernel, packages it with Limine into a bootable ISO, creates a 64 MiB FAT32 disk image (first run only — it's preserved across rebuilds so file writes persist), and launches it in QEMU with a real graphical window (mouse and keyboard both work normally in this window). The desktop is interactive in about a second.
 
 Other useful targets:
 
 ```bash
-make build   # compile the kernel only
-make iso     # build the bootable ISO
-make debug   # like `run`, but pauses at boot and opens a GDB stub (-s -S)
-make clean   # remove build artifacts (kernel, ISO — NOT the disk image)
+make build        # compile the kernel only
+make iso          # build the bootable ISO
+make debug        # like `run`, but pauses at boot and opens a GDB stub (-s -S)
+make diagnostic   # rebuilds with the full pre-Phase-18 boot sequence restored (regression
+                   # demos + the 450-cycle file/window stress test) - useful when you actually
+                   # want to watch/verify those checks, not for everyday use
+make clean        # remove build artifacts (kernel, ISO — NOT the disk image)
 ```
 
 To force a completely fresh, empty filesystem (wiping any files created during prior sessions):
@@ -360,6 +366,18 @@ Clicking the button again (now showing the restore glyph) returns the window to 
 
 ![Editor restored to its exact original geometry](screenshots/phase17_restored.png)
 
+### Phase 18 — Boot-Time Cleanup & Diagnostics Mode (v3)
+
+**Full desktop, screendumped 3 seconds into boot** ([phase18.md](phase18.md), Milestone 18.1)
+Wallpaper, the "Files" icon, taskbar, and cursor are all fully rendered within the first few seconds — the old boot sequence would still be partway through a bouncing-rectangle animation at this point.
+
+![Desktop fully rendered within seconds of boot](screenshots/phase18_desktop_fast.png)
+
+**File Manager opened via a real simulated click, same fast boot** ([phase18.md](phase18.md), Milestone 18.1)
+A genuine mouse click on the Files icon, sent moments after boot starts, successfully opens the File Manager — proving the desktop isn't just visually rendered but fully interactive this early.
+
+![File Manager opened within seconds of boot](screenshots/phase18_fm_fast.png)
+
 ---
 
 ## Project structure
@@ -384,6 +402,7 @@ phase14.md           Track A, Phase 3: 12 Medium/Low audit fixes (Track A now co
 phase15.md           Track B, Phase 1: real arrow cursor + gradient/BMP wallpaper
 phase16.md           Track B, Phase 2: window minimize + persistent taskbar restore/focus
 phase17.md           Track B, Phase 3: window maximize/restore (Track B now complete)
+phase18.md           v3, Phase 1: boot-time cleanup (~75-80s -> ~1s default boot) + `make diagnostic`
 version1/            all v1.0 planning/completion docs, moved here after v2 planning began
   PROJECT_PLAN.md     the full phase-by-phase roadmap and status tracker
   phase0.md ... phase11.md   detailed completion report for each finished phase
@@ -400,6 +419,7 @@ version1/            all v1.0 planning/completion docs, moved here after v2 plan
 - [phase15.md](phase15.md) — Track B's first phase: the real arrow cursor, gradient wallpaper, and BMP wallpaper loader, each with a "command to test" and a "command to see", plus an independent host-side pixel cross-check against the source BMP
 - [phase16.md](phase16.md) — Track B's second phase: window minimize and taskbar restore/focus, each with a "command to test" and a "command to see", a real heap-leak regression measurement for window teardown, and a documented test-script bug (not a kernel bug) found while verifying dynamic taskbar reordering
 - [phase17.md](phase17.md) — Track B's third and final phase: window maximize/restore, with an exact geometry round-trip proven both numerically (a debug build logging x/y/w/h at each step) and visually — Track B is complete as of this phase
+- [phase18.md](phase18.md) — v3's first phase: cuts the default boot from ~75-80s to ~1s by gating the old regression-demo/stress-test sequence behind a new `make diagnostic` build, with the PIT tick count used to measure the improvement and a log-diff proving zero loss of test coverage
 - [version1/PROJECT_PLAN.md](version1/PROJECT_PLAN.md) — full v1.0 project scope, phase breakdown, dependency graph, and status tracker
 - `version1/phase0.md` through `version1/phase11.md` — one detailed write-up per completed v1.0 phase: what was built, exact commands to reproduce every test, and any real bugs found (with symptom/diagnosis/fix)
 - [version1/phase-patch.md](version1/phase-patch.md) — the post-v1.0 patch: diagnosis and fix for a real desktop-hang bug, plus the unlabeled-button UX fix

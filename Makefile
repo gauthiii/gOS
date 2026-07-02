@@ -29,7 +29,7 @@ ASM_SOURCES := $(shell find $(KERNEL_DIR)/src -name '*.asm' 2>/dev/null)
 OBJS := $(C_SOURCES:$(KERNEL_DIR)/src/%.c=$(BUILD_DIR)/obj/%.c.o) \
         $(ASM_SOURCES:$(KERNEL_DIR)/src/%.asm=$(BUILD_DIR)/obj/%.asm.o)
 
-.PHONY: all build iso run debug clean disk
+.PHONY: all build iso run debug clean disk diagnostic
 
 all: build
 
@@ -131,3 +131,24 @@ debug: iso $(BUILD_DIR)/OVMF_VARS.fd disk
 
 clean:
 	rm -rf $(BUILD_DIR)
+
+# Phase 18 (Milestone 18.2): rebuilds with GOS_DIAGNOSTIC_BOOT defined,
+# restoring the full pre-Phase-18 boot sequence (bouncing-rectangle
+# animation, "Hello, gOS!" hold, mouse test window, full 2000ms timer
+# self-test, and the file/window stress test) for regression testing.
+# `make run`/`make build` no longer define this flag, so their object files
+# aren't diagnostic-flag-tagged - `clean` first here avoids silently
+# linking a mix of diagnostic and non-diagnostic .o files (the same class
+# of staleness hazard Finding #21 fixed for the disk image).
+diagnostic: clean
+	$(MAKE) iso CFLAGS="$(CFLAGS) -DGOS_DIAGNOSTIC_BOOT"
+	$(MAKE) disk $(BUILD_DIR)/OVMF_VARS.fd
+	qemu-system-x86_64 \
+		-M q35 -m 256M \
+		-drive if=pflash,format=raw,unit=0,file=$(OVMF_DIR)/OVMF_CODE.fd,readonly=on \
+		-drive if=pflash,format=raw,unit=1,file=$(BUILD_DIR)/OVMF_VARS.fd \
+		-cdrom $(ISO_IMAGE) \
+		-device piix3-ide,id=ide \
+		-drive id=gosdisk,file=$(DISK_IMG),if=none,format=raw \
+		-device ide-hd,drive=gosdisk,bus=ide.0 \
+		-serial stdio

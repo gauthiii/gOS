@@ -204,18 +204,18 @@ Audio and networking were explicitly scoped **out** of v3 — both are large, mu
 
 ---
 
-### Phase 18 — Boot-Time Cleanup & Diagnostics Mode
+### Phase 18 — Boot-Time Cleanup & Diagnostics Mode ✅ Complete — see [phase18.md](phase18.md)
 **Estimated time: 4–6 hours (~0.5–1 week)**
 
 **Milestone 18.1: Gate regression demos/stress test behind a debug flag**
-- [ ] Wrap the Phase 6/7 window/mouse demo sequence and the Phase 8 boot-time stress test (`kernel/src/start.c`) behind a new compile-time flag (e.g. `GOS_DIAGNOSTIC_BOOT`), off by default, so a normal boot goes straight from hardware init to the desktop loop
-- [ ] Test: `make run` (default build, no debug flag) reaches `=== gOS boot checks complete ===` within a few seconds of kernel entry instead of ~75s — verify via the PIT tick count (`Timer tick: N`) logged at that point in serial output, comparing it against a pre-change baseline capture
+- [x] Wrap the Phase 6/7 window/mouse demo sequence and the Phase 8 boot-time stress test (`kernel/src/start.c`) behind a new compile-time flag (e.g. `GOS_DIAGNOSTIC_BOOT`), off by default, so a normal boot goes straight from hardware init to the desktop loop
+- [x] Test: `make run` (default build, no debug flag) reaches `=== gOS boot checks complete ===` within a few seconds of kernel entry instead of ~75s — verify via the PIT tick count (`Timer tick: N`) logged at that point in serial output, comparing it against a pre-change baseline capture
 
 **Milestone 18.2: Preserve full diagnostics for regression testing**
-- [ ] Add a `make diagnostic` Makefile target (or a documented `CFLAGS=... -DGOS_DIAGNOSTIC_BOOT` invocation) that rebuilds with the full regression suite enabled, matching today's boot sequence exactly
-- [ ] Test: boot the diagnostic build in QEMU and diff its serial log (excluding timestamps) against a saved pre-Phase-18 baseline log — confirm every existing regression check line (mouse test window, stress test PASS, demo window creation, etc.) is still present and unchanged, proving the gating didn't silently drop test coverage
+- [x] Add a `make diagnostic` Makefile target (or a documented `CFLAGS=... -DGOS_DIAGNOSTIC_BOOT` invocation) that rebuilds with the full regression suite enabled, matching today's boot sequence exactly
+- [x] Test: boot the diagnostic build in QEMU and diff its serial log (excluding timestamps) against a saved pre-Phase-18 baseline log — confirm every existing regression check line (mouse test window, stress test PASS, demo window creation, etc.) is still present and unchanged, proving the gating didn't silently drop test coverage
 
-**Phase 18 exit criterion:** default `make run` reaches the interactive desktop in a few seconds; every existing regression test still runs (and passes) via `make diagnostic`, with zero loss of coverage.
+**Phase 18 exit criterion:** ✅ default `make run` reaches the interactive desktop in ~1 second (PIT tick count = 100, down from ~7,000-8,000 pre-Phase-18), independently confirmed interactive via a real simulated click on the Files icon; every existing regression test still runs (and passes) via `make diagnostic`, with zero loss of coverage. Full writeup: [phase18.md](phase18.md).
 
 ---
 
@@ -411,8 +411,8 @@ Assuming the same ~7.5 hrs/week pace as the v1 plan:
 | 16 | 16.3 Taskbar | Taskbar render + restore/focus click handling | Done | Minimized entries dimmed; 3-window/2-minimized test confirms exact geometry + focus restored on click |
 | 17 | 17.1 Maximize (optional) | Maximize/restore geometry toggle | Done | Titlebar toggle button (teal square, left of minimize); exact round-trip proven numerically + visually — see [phase17.md](phase17.md) |
 | — | 14.0 README update | Update README (post-Track-B pass) | Done | Final v2 feature set (Phases 15-17) reflected — see this update |
-| 18 | 18.1 Boot speed | Gate regression demos/stress test behind debug flag | Not Started | |
-| 18 | 18.2 Diagnostic build | Add `make diagnostic` target preserving full test coverage | Not Started | |
+| 18 | 18.1 Boot speed | Gate regression demos/stress test behind debug flag | Done | Default boot: ~1s (tick=100), down from ~75-80s — see [phase18.md](phase18.md) |
+| 18 | 18.2 Diagnostic build | Add `make diagnostic` target preserving full test coverage | Done | Diagnostic build reproduces every pre-Phase-18 regression line byte-for-byte |
 | 19 | 19.1 Ring 3 + TSS | GDT user segments + TSS `rsp0` wiring | Not Started | |
 | 19 | 19.2 Syscall entry | Minimal syscall table (`write`, `exit`) | Not Started | |
 | 19 | 19.3 ELF loader | Load + execute a bundled user-mode ELF binary | Not Started | |
