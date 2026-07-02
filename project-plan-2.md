@@ -130,25 +130,25 @@ Fixing Track A first means Track B is built on a kernel whose fragile paths are 
 
 ---
 
-### Phase 15 — Cursor & Wallpaper
+### Phase 15 — Cursor & Wallpaper ✅ Complete — see [phase15.md](phase15.md)
 **Estimated time: 6–10 hours (~1–1.5 weeks)**
 
 **Milestone 15.1: Real arrow-shaped mouse cursor**
-- [ ] Design/hardcode a small arrow-cursor bitmap (monochrome or 2-color, e.g. 12x19px) as a static array in the compositor source
-- [ ] Render the cursor in the compositor's top layer (drawn last, after all windows) at the current mouse position, replacing whatever placeholder cursor behavior exists today
-- [ ] Test: in QEMU, move the mouse across window boundaries and the desktop background; confirm the arrow cursor renders correctly on top of both, with no leftover pixels from the previous frame's cursor position (verify via `screendump` before/after movement)
+- [x] Design/hardcode a small arrow-cursor bitmap (monochrome or 2-color, e.g. 12x19px) as a static array in the compositor source
+- [x] Render the cursor in the compositor's top layer (drawn last, after all windows) at the current mouse position, replacing whatever placeholder cursor behavior exists today
+- [x] Test: in QEMU, move the mouse across window boundaries and the desktop background; confirm the arrow cursor renders correctly on top of both, with no leftover pixels from the previous frame's cursor position (verify via `screendump` before/after movement)
 
 **Milestone 15.2: Desktop wallpaper layer**
-- [ ] Add a wallpaper draw call in the compositor, executed before window compositing, starting with a solid color or simple vertical/horizontal gradient
-- [ ] Test: in QEMU, boot with no windows open and confirm the wallpaper renders full-screen; open a window and confirm it draws on top without wallpaper bleed-through at the edges
+- [x] Add a wallpaper draw call in the compositor, executed before window compositing, starting with a solid color or simple vertical/horizontal gradient
+- [x] Test: in QEMU, boot with no windows open and confirm the wallpaper renders full-screen; open a window and confirm it draws on top without wallpaper bleed-through at the edges
 
 **Milestone 15.3 (stretch): Minimal raw/BMP image wallpaper**
-- [ ] Write a minimal hand-rolled loader for an uncompressed BMP (or a custom raw RGB format bundled at build time) — no PNG/JPEG decoding
-- [ ] Bundle the image file on the FAT32 disk image via the Makefile's image-seeding step
-- [ ] Load the file via the (now-hardened, post-Phase-12/13) FAT32 read path at boot and blit it as the wallpaper
-- [ ] Test: in QEMU, confirm the bundled image renders correctly as wallpaper on boot; if the FAT32 read fails (missing file), confirm graceful fallback to the solid-color wallpaper from 15.2 rather than a crash
+- [x] Write a minimal hand-rolled loader for an uncompressed BMP (or a custom raw RGB format bundled at build time) — no PNG/JPEG decoding
+- [x] Bundle the image file on the FAT32 disk image via the Makefile's image-seeding step
+- [x] Load the file via the (now-hardened, post-Phase-12/13) FAT32 read path at boot and blit it as the wallpaper
+- [x] Test: in QEMU, confirm the bundled image renders correctly as wallpaper on boot; if the FAT32 read fails (missing file), confirm graceful fallback to the solid-color wallpaper from 15.2 rather than a crash
 
-**Phase 15 exit criterion:** cursor and wallpaper render correctly in QEMU; stretch goal attempted only if 15.1/15.2 land without eating into Phase 16's budget.
+**Phase 15 exit criterion:** ✅ cursor and wallpaper render correctly in QEMU (screendump + independent host-side pixel comparison against the source BMP); stretch goal landed, with graceful fallback verified for both missing and corrupted wallpaper files. Full writeup: [phase15.md](phase15.md).
 
 ---
 
@@ -245,9 +245,9 @@ Assuming the same ~7.5 hrs/week pace as the v1 plan:
 | 14 | 14.2 Low fixes | #22 fb_backbuffer_init re-entrancy guard | Done | PMM free-page count unchanged across repeat call |
 | 14 | 14.2 Low fixes | #23 Dialog guard feedback | Done | Reuses #17's taskbar_flash_message() |
 | 14 | 14.2 Low fixes | #24 Document/harden double-click identity | Done | Documentation-only, per audit's own latent-not-active assessment |
-| 15 | 15.1 Cursor | Design + render arrow cursor | Not Started | |
-| 15 | 15.2 Wallpaper | Solid/gradient wallpaper layer | Not Started | |
-| 15 | 15.3 Wallpaper (stretch) | BMP/raw loader + bundled image | Not Started | |
+| 15 | 15.1 Cursor | Design + render arrow cursor | Done | 12x19 arrow w/ transparency; also fixed cursor-under-taskbar draw order — see [phase15.md](phase15.md) |
+| 15 | 15.2 Wallpaper | Solid/gradient wallpaper layer | Done | Vertical blue→teal gradient (fallback layer for 15.3) |
+| 15 | 15.3 Wallpaper (stretch) | BMP/raw loader + bundled image | Done | 24bpp BMP off FAT32; screendump pixel-matched source BMP (0/2000 mismatches); missing + corrupted-file fallbacks verified |
 | 16 | 16.1 Window teardown | Full close cleanup (buttons, heap, callbacks) | Not Started | |
 | 16 | 16.2 Minimize | Minimized flag + compositor skip | Not Started | |
 | 16 | 16.3 Taskbar | Taskbar render + restore/focus click handling | Not Started | |

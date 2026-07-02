@@ -198,8 +198,47 @@ int64_t mouse_x(void) { return cursor_x; }
 int64_t mouse_y(void) { return cursor_y; }
 uint8_t mouse_buttons(void) { return buttons; }
 
+/* Milestone 15.1: classic arrow cursor, 12x19, 2-color + transparency.
+ * 'X' = black outline, 'W' = white fill, '.' = transparent (desktop /
+ * window pixels show through). The hotspot is the top-left tip (0,0),
+ * matching where clicks are hit-tested. */
+#define CURSOR_W 12
+#define CURSOR_H 19
+static const char cursor_bitmap[CURSOR_H][CURSOR_W + 1] = {
+    "X...........",
+    "XX..........",
+    "XWX.........",
+    "XWWX........",
+    "XWWWX.......",
+    "XWWWWX......",
+    "XWWWWWX.....",
+    "XWWWWWWX....",
+    "XWWWWWWWX...",
+    "XWWWWWWWWX..",
+    "XWWWWWWWWWX.",
+    "XWWWWWWXXXXX",
+    "XWWWXWWX....",
+    "XWWX.XWWX...",
+    "XWX..XWWX...",
+    "XX....XWWX..",
+    "X.....XWWX..",
+    "......XWWX..",
+    ".......XX...",
+};
+
 void mouse_draw_cursor(void) {
-    const int64_t size = 10;
-    fb_draw_rect((uint64_t)cursor_x, (uint64_t)cursor_y, size, size, fb_make_color(255, 255, 255));
-    fb_draw_rect_outline((uint64_t)cursor_x, (uint64_t)cursor_y, size, size, fb_make_color(0, 0, 0), 1);
+    uint32_t black = fb_make_color(0, 0, 0);
+    uint32_t white = fb_make_color(255, 255, 255);
+    for (int64_t row = 0; row < CURSOR_H; row++) {
+        for (int64_t col = 0; col < CURSOR_W; col++) {
+            char c = cursor_bitmap[row][col];
+            if (c == '.') {
+                continue; /* transparent - underlying pixel stays */
+            }
+            /* fb_put_pixel bounds-checks, so the sprite clips cleanly at
+             * the right/bottom screen edges. */
+            fb_put_pixel((uint64_t)(cursor_x + col), (uint64_t)(cursor_y + row),
+                         c == 'X' ? black : white);
+        }
+    }
 }

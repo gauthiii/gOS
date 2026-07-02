@@ -446,5 +446,7 @@ void window_composite(void) {
     for (int i = 0; i < window_count; i++) {
         draw_window(&windows[z_order[i]]);
     }
-    mouse_draw_cursor();
+    /* Milestone 15.1: the cursor is no longer drawn here - it must sit in
+     * the compositor's true top layer (above the taskbar too), so the main
+     * loop calls mouse_draw_cursor() last, after taskbar_render(). */
 }

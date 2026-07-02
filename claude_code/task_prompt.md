@@ -1,6 +1,6 @@
-### Now do Phase 14 the same way and create phase14.md in the same format as the previous phase docs. 
+### Now do Phase 15 the same way and create phase15.md in the same format as the previous phase docs. 
 
-In phase14.md, after every milestone, include: 
+In phase15.md, after every milestone, include: 
 
 - (1) a "command to test" that verifies it works and shows the expected output, and 
 - (2) a "command to see" that lets me visually/interactively observe the result (screendump-and-open for graphical output, or a live -display cocoa command for interactive verification). 

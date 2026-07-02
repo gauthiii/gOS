@@ -18,6 +18,7 @@
 #include <fm.h>
 #include <desktop.h>
 #include <taskbar.h>
+#include <wallpaper.h>
 
 extern uint8_t __kernel_virt_start[];
 extern uint8_t __kernel_virt_end[];
@@ -830,6 +831,11 @@ void _start(void) {
     serial_write_string(" slot(s) free\n");
     serial_write_string("Desktop ready - click the \"Files\" icon to launch the File Manager\n");
 
+    /* Milestone 15.3: try to load the bundled BMP wallpaper off the FAT32
+     * disk (heap + FAT32 are both up by now); falls back to the built-in
+     * gradient (Milestone 15.2) if missing or malformed. */
+    wallpaper_init();
+
 #if defined(GOS_TEST_WINDOW_CREATE_FEEDBACK)
     /* Finding #17 repro: fill every remaining window slot, then attempt
      * to open the File Manager (which internally calls window_create())
@@ -878,6 +884,7 @@ void _start(void) {
         desktop_render();
         window_composite();
         taskbar_render();
+        mouse_draw_cursor();
         fb_flip();
         sleep_ms(50);
     }
@@ -911,6 +918,9 @@ void _start(void) {
         desktop_render();
         window_composite();
         taskbar_render();
+        /* Milestone 15.1: cursor is the compositor's top layer - drawn
+         * after every window AND the taskbar, so it's never occluded. */
+        mouse_draw_cursor();
         fb_flip();
         sleep_ms(50);
     }

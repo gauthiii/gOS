@@ -77,7 +77,11 @@ iso: build
 # deletes the stale image (forcing $(DISK_IMG)'s own rule to rebuild it)
 # if they differ - a normal, unrelated `make`/`make run` with an
 # unchanged recipe still leaves an existing image (and its data) alone.
-DISK_RECIPE := truncate -s 64M $(DISK_IMG) && mformat -F -i $(DISK_IMG) -v GOSDISK ::
+# Phase 15.3: the seed recipe also bundles the wallpaper BMP into the fresh
+# image (WALLPAPR.BMP in the root, 8.3 name matching the FAT32 driver).
+# Changing this line changes DISK_RECIPE_HASH, so existing images rebuild
+# once (per Finding #21's mechanism) and pick up the wallpaper.
+DISK_RECIPE := truncate -s 64M $(DISK_IMG) && mformat -F -i $(DISK_IMG) -v GOSDISK :: && mcopy -i $(DISK_IMG) tools/wallpaper.bmp ::WALLPAPR.BMP
 DISK_RECIPE_HASH := $(shell echo "$(DISK_RECIPE)" | shasum -a 256 | cut -d' ' -f1)
 DISK_HASH_FILE := disk_images/.disk_recipe_hash
 
@@ -92,9 +96,12 @@ check-disk-recipe:
 		rm -f $(DISK_IMG); \
 	fi
 
-$(DISK_IMG):
+$(DISK_IMG): tools/wallpaper.bmp
 	@mkdir -p disk_images
 	$(DISK_RECIPE)
+
+tools/wallpaper.bmp: tools/make_wallpaper.py
+	python3 tools/make_wallpaper.py
 
 run: iso disk $(BUILD_DIR)/OVMF_VARS.fd
 	qemu-system-x86_64 \

@@ -6,6 +6,7 @@
 #include <fm.h>
 #include <serial.h>
 #include <taskbar.h>
+#include <wallpaper.h>
 
 #define ICON_X 20
 #define ICON_Y 20
@@ -19,13 +20,10 @@ static int fm_is_open(void) {
 }
 
 void desktop_render(void) {
-    /* Simple wallpaper: a solid background plus a few darker horizontal
-     * bands, so the desktop reads as "a background" rather than a blank
-     * fill - no image decoding needed for v1. */
-    fb_clear(fb_make_color(25, 70, 100));
-    for (uint64_t y = 0; y < fb_height(); y += 40) {
-        fb_draw_rect(0, y, fb_width(), 4, fb_make_color(20, 58, 84));
-    }
+    /* Milestone 15.2/15.3: real wallpaper layer (BMP image if bundled on
+     * the disk image, vertical-gradient fallback otherwise), replacing
+     * v1's solid fill + horizontal bands. */
+    wallpaper_render();
 
     fb_draw_rect(ICON_X, ICON_Y, ICON_SIZE, ICON_SIZE, fb_make_color(230, 200, 120));
     fb_draw_rect_outline(ICON_X, ICON_Y, ICON_SIZE, ICON_SIZE, fb_make_color(0, 0, 0), 2);
