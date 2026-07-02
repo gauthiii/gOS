@@ -2,6 +2,7 @@
 #include <gdt.h>
 #include <serial.h>
 #include <panic.h>
+#include <syscall.h>
 #include <stdint.h>
 
 struct idt_entry {
@@ -38,6 +39,8 @@ extern void irq0(void);  extern void irq1(void);  extern void irq2(void);  exter
 extern void irq4(void);  extern void irq5(void);  extern void irq6(void);  extern void irq7(void);
 extern void irq8(void);  extern void irq9(void);  extern void irq10(void); extern void irq11(void);
 extern void irq12(void); extern void irq13(void); extern void irq14(void); extern void irq15(void);
+
+extern void isr128(void); /* Milestone 19.2: syscall gate stub */
 
 static const char *exception_name(uint64_t vector) {
     static const char *names[32] = {
@@ -79,6 +82,11 @@ void isr_handler(struct interrupt_frame *frame) {
         if (irq_handlers[irq] != 0) {
             irq_handlers[irq](frame);
         }
+        return;
+    }
+
+    if (frame->vector == SYSCALL_VECTOR) {
+        syscall_dispatch(frame);
         return;
     }
 
@@ -187,6 +195,13 @@ void idt_init(void) {
     idt_set_gate(45, irq13, 0, 0x8E);
     idt_set_gate(46, irq14, 0, 0x8E);
     idt_set_gate(47, irq15, 0, 0x8E);
+
+    /* Milestone 19.2: DPL=3 (0xEE = present, DPL=3, 64-bit interrupt gate)
+     * instead of the DPL=0 (0x8E) every other gate uses - this is the one
+     * vector ring-3 code is actually allowed to invoke via `int 0x80`. A
+     * ring-3 `int` on any other vector still faults with a #GP, matching
+     * real hardware/OS behavior. */
+    idt_set_gate(SYSCALL_VECTOR, isr128, 0, 0xEE);
 
     idtp.limit = sizeof(idt) - 1;
     idtp.base = (uint64_t)&idt;

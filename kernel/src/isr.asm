@@ -83,6 +83,13 @@ IRQ_STUB 13, 45
 IRQ_STUB 14, 46
 IRQ_STUB 15, 47
 
+; Milestone 19.2: vector 0x80 (128), the syscall gate. Uses the same
+; ISR_NOERR shape (int 0x80 pushes no error code) and the same common
+; stub as every other vector - the DPL=3 IDT gate (set in idt.c) is what
+; actually allows ring-3 code to invoke it; the entry mechanics here are
+; identical to a CPU exception or IRQ landing on this stub.
+ISR_NOERR 128
+
 isr_common_stub:
     push rax
     push rbx

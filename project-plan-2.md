@@ -23,9 +23,9 @@ This isn't just discipline for its own sake — Track B features touch code the 
 
 Fixing Track A first means Track B is built on a kernel whose fragile paths are already hardened, rather than adding new call sites to code that's known to be unsafe.
 
-### v3: Track C / D / E
+### Tracks C / D / E (still v2)
 
-**v2 (Track A + Track B, Phases 12–17) is complete.** v3 adds three new tracks, planned after a retrospective on what gOS is still missing as a "real" OS versus a windowed FAT32 file browser:
+**Track A + Track B (Phases 12–17) are complete.** Tracks C/D/E extend v2 with three more tracks, planned after a retrospective on what gOS is still missing as a "real" OS versus a windowed FAT32 file browser — these are additional v2 tracks, not a new major version:
 
 - **Track C — OS internals**: the biggest remaining architectural gap is that gOS has no user mode, no syscalls, and no process concept at all — everything so far is one big kernel-mode loop. Phases 19–20 add ring-3 execution, a syscall interface, an ELF loader, and preemptive multitasking.
 - **Track D — Desktop & storage depth**: window resize and Alt+Tab (the remaining windowing gaps after Phases 15–17's minimize/maximize), a real-time clock and taskbar clock, settings persistence, and FAT32 long filename support.
@@ -33,7 +33,7 @@ Fixing Track A first means Track B is built on a kernel whose fragile paths are 
 
 **Phase 18 (boot-time cleanup) comes first and blocks nothing** — it's an unrelated quick fix (gating the stress test/regression demos behind a debug flag so normal boots are fast again) that pays for itself immediately in faster QEMU test iteration for every phase after it.
 
-Audio and networking were explicitly scoped **out** of v3 — both are large, multi-phase undertakings (PCI enumeration, real NIC/sound drivers, a network stack) with little payoff until Track C gives gOS something to actually run on top of them. Revisit in a future v4 once user-mode programs exist.
+Audio and networking were explicitly scoped **out** of this plan — both are large, multi-phase undertakings (PCI enumeration, real NIC/sound drivers, a network stack) with little payoff until Track C gives gOS something to actually run on top of them. Revisit in a future v3 once user-mode programs exist.
 
 ---
 
@@ -47,7 +47,7 @@ Audio and networking were explicitly scoped **out** of v3 — both are large, mu
 | 15 | Cursor & Wallpaper | B | 14 |
 | 16 | Window Close, Minimize & Taskbar | B | 14, 12 (kfree fix), 13 (stale-window fix) |
 | 17 | Maximize & Polish (optional/stretch) | B | 16 |
-| 18 | Boot-Time Cleanup & Diagnostics Mode | — | 17 (v2 complete) |
+| 18 | Boot-Time Cleanup & Diagnostics Mode | — | 17 (Track A+B complete) |
 | 19 | User Mode, Syscalls & ELF Loader | C | 14 (hardened VMM/GDT/IDT) |
 | 20 | Preemptive Multitasking & Process Management | C | 19 |
 | 21 | Window Resize & Alt+Tab | D | 14 |
@@ -219,23 +219,23 @@ Audio and networking were explicitly scoped **out** of v3 — both are large, mu
 
 ---
 
-### Phase 19 — User Mode, Syscalls & ELF Loader
+### Phase 19 — User Mode, Syscalls & ELF Loader ✅ Complete — see [phase19.md](phase19.md)
 **Estimated time: 16–24 hours (~2.5–3 weeks)**
 
 **Milestone 19.1: Ring 3 segments + TSS extension**
-- [ ] Extend the GDT (`kernel/src/gdt.c`) with user-mode code/data segments (ring 3, DPL=3), and extend the existing TSS (already carrying `ist1` since Phase 12.5) with a kernel-mode stack pointer (`rsp0`) for ring 3→0 transitions
-- [ ] Test: a debug build constructs an `iretq` frame into a trivial ring-3 stub and jumps to it; confirm via serial log (reading `CS` before the stub does anything else) that the CPU is genuinely executing at CPL=3, then confirm it can transition back to ring 0 without a fault
+- [x] Extend the GDT (`kernel/src/gdt.c`) with user-mode code/data segments (ring 3, DPL=3), and extend the existing TSS (already carrying `ist1` since Phase 12.5) with a kernel-mode stack pointer (`rsp0`) for ring 3→0 transitions
+- [x] Test: a debug build constructs an `iretq` frame into a trivial ring-3 stub and jumps to it; confirm via serial log (reading `CS` before the stub does anything else) that the CPU is genuinely executing at CPL=3, then confirm it can transition back to ring 0 without a fault
 
 **Milestone 19.2: Syscall entry point**
-- [ ] Implement a syscall gate (`int 0x80`, or the `syscall`/`sysret` instruction pair with the relevant MSRs) with a minimal syscall table covering at least `write` (to serial, proving the round-trip) and `exit`
-- [ ] Test: the ring-3 stub from 19.1 issues a `write` syscall with a distinctive test string; confirm the string appears in serial output, proving a full user→kernel→user round-trip through the new syscall path
+- [x] Implement a syscall gate (`int 0x80`, or the `syscall`/`sysret` instruction pair with the relevant MSRs) with a minimal syscall table covering at least `write` (to serial, proving the round-trip) and `exit`
+- [x] Test: the ring-3 stub from 19.1 issues a `write` syscall with a distinctive test string; confirm the string appears in serial output, proving a full user→kernel→user round-trip through the new syscall path
 
 **Milestone 19.3: Minimal ELF64 loader**
-- [ ] Parse a static, non-relocatable ELF64 executable's program headers and map its `PT_LOAD` segments into a fresh set of user-mode page tables (reusing `vmm_map_page`/`vmm_unmap_page` from the existing, Phase-13.5-hardened VMM), then transfer control to its entry point in ring 3
-- [ ] Bundle one trivial hand-assembled/compiled "hello from userland" ELF binary on the FAT32 disk image, via the same Makefile disk-seeding mechanism Phase 15.3 used for the wallpaper BMP
-- [ ] Test: in QEMU, load the bundled ELF via `fat_read_file` and execute it through the new loader; confirm its `write` syscall output appears on serial — this is the first genuinely independent, kernel-authored-but-not-kernel-linked code gOS has ever run
+- [x] Parse a static, non-relocatable ELF64 executable's program headers and map its `PT_LOAD` segments into a fresh set of user-mode page tables (reusing `vmm_map_page`/`vmm_unmap_page` from the existing, Phase-13.5-hardened VMM), then transfer control to its entry point in ring 3
+- [x] Bundle one trivial hand-assembled/compiled "hello from userland" ELF binary on the FAT32 disk image, via the same Makefile disk-seeding mechanism Phase 15.3 used for the wallpaper BMP
+- [x] Test: in QEMU, load the bundled ELF via `fat_read_file` and execute it through the new loader; confirm its `write` syscall output appears on serial — this is the first genuinely independent, kernel-authored-but-not-kernel-linked code gOS has ever run
 
-**Phase 19 exit criterion:** a real ELF binary — built and bundled separately from the kernel image — executes in ring 3 and can make syscalls back into the kernel, verified end-to-end in QEMU.
+**Phase 19 exit criterion:** ✅ a real ELF binary — built and bundled separately from the kernel image, independently verified via `readelf` and a byte-for-byte `diff` against its on-disk copy — executes in ring 3 and makes syscalls back into the kernel, verified end-to-end in QEMU. Found and fixed a real VMM bug along the way (page-table `PAGE_USER` bit not propagating to already-existing intermediate table entries). Full writeup: [phase19.md](phase19.md).
 
 ---
 
@@ -354,10 +354,11 @@ Assuming the same ~7.5 hrs/week pace as the v1 plan:
 | **Track D total** | **28–40** | **~4–5.5** |
 | 24 — Shell, Calculator & Image Viewer | 14–20 | 2–2.5 |
 | **Track E total** | **14–20** | **~2–2.5** |
-| **v3 total (Phase 18 + Track C + D + E)** | **80–116** | **~11.5–16.5** |
-| **Project grand total (v1 est. + v2 + v3 est.)** | **278–417** | **~46.5–62.5** |
+| **Tracks C+D+E total (Phase 18 + Track C + D + E)** | **80–116** | **~11.5–16.5** |
+| **v2 total (Track A + B + C + D + E)** | **140–205** | **~20.5–28.5** |
+| **Project grand total (v1 est. + v2 est.)** | **278–417** | **~46.5–62.5** |
 
-*(v1's own total — Phases 0–11 — was estimated at 138–212 hrs in [version1/PROJECT_PLAN.md](version1/PROJECT_PLAN.md); that plan doesn't record a rolled-up actual-hours total the way v2's phase docs do, so the grand total above combines v1's estimate with v2's largely-actual figures and v3's estimate. Treat it as a rough order of magnitude, not a commitment — v3 in particular is unbuilt and its estimates will firm up the same way v2's did once each phase actually starts.)*
+*(v1's own total — Phases 0–11 — was estimated at 138–212 hrs in [version1/PROJECT_PLAN.md](version1/PROJECT_PLAN.md); that plan doesn't record a rolled-up actual-hours total the way v2's phase docs do, so the grand total above combines v1's estimate with v2's largely-actual-plus-estimated figures. Treat it as a rough order of magnitude, not a commitment — Tracks C/D/E in particular are still mostly unbuilt and their estimates will firm up the same way Track A/B's did once each phase actually starts.)*
 
 ---
 
@@ -413,9 +414,9 @@ Assuming the same ~7.5 hrs/week pace as the v1 plan:
 | — | 14.0 README update | Update README (post-Track-B pass) | Done | Final v2 feature set (Phases 15-17) reflected — see this update |
 | 18 | 18.1 Boot speed | Gate regression demos/stress test behind debug flag | Done | Default boot: ~1s (tick=100), down from ~75-80s — see [phase18.md](phase18.md) |
 | 18 | 18.2 Diagnostic build | Add `make diagnostic` target preserving full test coverage | Done | Diagnostic build reproduces every pre-Phase-18 regression line byte-for-byte |
-| 19 | 19.1 Ring 3 + TSS | GDT user segments + TSS `rsp0` wiring | Not Started | |
-| 19 | 19.2 Syscall entry | Minimal syscall table (`write`, `exit`) | Not Started | |
-| 19 | 19.3 ELF loader | Load + execute a bundled user-mode ELF binary | Not Started | |
+| 19 | 19.1 Ring 3 + TSS | GDT user segments + TSS `rsp0` wiring | Done | GDT/TSS already existed since v1.0; built `enter_user_mode()`/resume trampoline to exercise it — found + fixed a real `PAGE_USER` propagation bug in `vmm.c` along the way — see [phase19.md](phase19.md) |
+| 19 | 19.2 Syscall entry | Minimal syscall table (`write`, `exit`) | Done | `int 0x80`, DPL=3 gate; `write`+`exit` dispatch; caller CS RPL independently verified as 3 |
+| 19 | 19.3 ELF loader | Load + execute a bundled user-mode ELF binary | Done | Real ELF64 (`HELLO.ELF`) built via nasm+ld, bundled on disk, loaded+run; cross-checked via host `readelf` + byte-for-byte `diff` against the disk copy |
 | 20 | 20.1 Context switching | Process table + timer-driven context switch | Not Started | |
 | 20 | 20.2 Process lifecycle | `exit`/`wait`/`spawn` syscalls | Not Started | |
 | 20 | 20.3 Scheduler fairness | Multi-process no-starvation test | Not Started | |
@@ -455,7 +456,7 @@ Assuming the same ~7.5 hrs/week pace as the v1 plan:
 - **Phase 17 (maximize) is optional and should be the first thing cut if time runs short.** It's explicitly scoped as stretch-only, gated on Phase 16 landing cleanly with no lingering geometry/state bugs. If Phase 16 runs over its estimated 14–20 hours or its QEMU heap/state tests are flaky, skip Phase 17 entirely rather than layering more geometry state onto an unproven taskbar.
 - **Phase 15.3 (BMP/raw image loader) is a stretch goal within Phase 15**, not a hard requirement — if it starts pulling in image-format complexity beyond a trivial raw/BMP reader, fall back to the solid-color/gradient wallpaper from 15.2 and move on to Phase 16.
 - **Do not start Track B work early even if a Track A fix "looks small."** The priority rule (Section 1) exists specifically because Track B's riskiest phase (16) depends on Track A fixes that are easy to underestimate the blast radius of (kfree double-free, stale-window dispatch) — verify each Track A QEMU test actually passes before treating that finding as closed.
-- **Phases 19/20 (Track C: user mode + multitasking) are v3's highest-risk pair**, on the scale of v1's memory management (Phase 3) or v2's window teardown (Phase 16) — this is gOS's first-ever ring-3 code and first-ever preemptive scheduling, touching GDT/TSS/paging/interrupts all at once. Budget significant slack; if 19's ELF loader or ring-3 transition surfaces instability, resolve it fully before starting 20's scheduler — a flaky scheduler layered on an uncertain user-mode transition would be far harder to debug than either problem alone.
+- **Phases 19/20 (Track C: user mode + multitasking) are this plan's highest-risk pair since Track B**, on the scale of v1's memory management (Phase 3) or Track B's window teardown (Phase 16) — this is gOS's first-ever ring-3 code and first-ever preemptive scheduling, touching GDT/TSS/paging/interrupts all at once. Budget significant slack; if 19's ELF loader or ring-3 transition surfaces instability, resolve it fully before starting 20's scheduler — a flaky scheduler layered on an uncertain user-mode transition would be far harder to debug than either problem alone.
 - **Phase 24's shell (24.1) is explicitly allowed to degrade to a kernel-mode fallback** if Track C isn't ready in time — don't block the whole apps phase on Track C landing perfectly; ship the calculator and image viewer regardless.
 - **Phase 23 (LFN) touches `create_entry`/`find_free_slot`** — the same functions Finding #13.4 hardened with rollback-on-failure. New LFN entry-writing logic must preserve that behavior, not bypass it; if 23.2's write-support work starts eroding that guarantee, land 23.1 (read-only) alone and defer write support.
 - **As with Track B, Track C/D/E work should not start until the phase(s) it depends on (Section 7) are actually complete and tested**, not just "mostly done" — this bit v1 and is worth repeating for every subsequent track.

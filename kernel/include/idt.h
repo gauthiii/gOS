@@ -16,4 +16,9 @@ void idt_init(void);
 typedef void (*irq_handler_t)(struct interrupt_frame *frame);
 void idt_register_irq_handler(uint8_t irq, irq_handler_t handler);
 
+/* Milestone 19.2: the syscall gate. DPL=3 (unlike every other IDT gate,
+ * which is DPL=0/kernel-only) so ring-3 code can invoke it directly via
+ * `int 0x80`. */
+#define SYSCALL_VECTOR 0x80
+
 #endif

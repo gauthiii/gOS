@@ -24,7 +24,7 @@ make diagnostic
 
 ## Summary
 
-Phase 18 is v3's first phase, and the only one with no dependency on the rest of v3 — it exists purely to fix a real, user-reported problem: booting `make run` looked like a hang. It didn't hang; the boot sequence ran ~11 seconds of hardcoded `sleep_ms()` demo animations plus a 450-cycle (150 file + 300 window) stress test that turned out to be the dominant cost by a wide margin.
+Phase 18 is the first of the new Tracks C/D/E (still part of v2 — see [project-plan-2.md](project-plan-2.md)), and the only one with no dependency on the rest of them — it exists purely to fix a real, user-reported problem: booting `make run` looked like a hang. It didn't hang; the boot sequence ran ~11 seconds of hardcoded `sleep_ms()` demo animations plus a 450-cycle (150 file + 300 window) stress test that turned out to be the dominant cost by a wide margin.
 
 **Milestone 18.1** wrapped every one of those in `#if defined(GOS_DIAGNOSTIC_BOOT)`, off by default:
 - The Milestone 5.3 bouncing-rectangle animation (40 frames × 50ms ≈ 2s)

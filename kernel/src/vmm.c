@@ -25,6 +25,24 @@ static uint64_t *table_get_or_create(uint64_t *table, uint64_t index, uint64_t f
             new_table_virt[i] = 0;
         }
         table[index] = new_table_phys | PAGE_PRESENT | PAGE_WRITABLE | (flags & PAGE_USER);
+    } else if ((flags & PAGE_USER) && !(table[index] & PAGE_USER)) {
+        /* Milestone 19.1 bug fix: the U/S bit is enforced at EVERY page
+         * table level, not just the leaf PTE - a user-accessible leaf
+         * mapping is silently blocked if any PML4/PDPT/PD entry above it
+         * lacks PAGE_USER. An intermediate entry created earlier by a
+         * kernel-only mapping that happens to share the same 512GB/1GB/
+         * 2MB region (e.g. vmm_init()'s own identity map, which covers
+         * the low 4GiB - including where Phase 19's first user-mode
+         * mapping landed - with PAGE_WRITABLE only, no PAGE_USER) would
+         * otherwise never get PAGE_USER retroactively, since the
+         * `!(table[index] & PAGE_PRESENT)` branch above only runs once,
+         * at first creation. OR it in here instead. This does NOT expose
+         * the kernel's own sibling mappings under the same intermediate
+         * table to user access - their own PT-level leaf entries still
+         * lack PAGE_USER independently; only the specific new leaf
+         * mapping this call is for gains access, once its own PTE is
+         * written with PAGE_USER too. */
+        table[index] |= PAGE_USER;
     }
     return phys_to_virt(table[index] & ADDR_MASK);
 }

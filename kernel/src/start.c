@@ -19,6 +19,8 @@
 #include <desktop.h>
 #include <taskbar.h>
 #include <wallpaper.h>
+#include <usermode.h>
+#include <syscall.h>
 
 extern uint8_t __kernel_virt_start[];
 extern uint8_t __kernel_virt_end[];
@@ -380,6 +382,25 @@ void _start(void) {
     serial_write_string(") - full 2000ms self-test skipped (define GOS_DIAGNOSTIC_BOOT to run it)\n");
 #endif
 
+#if defined(GOS_TEST_USERMODE)
+    /* Milestone 19.1/19.2: run the tiny hand-assembled ring3 test blob -
+     * proves the GDT user segments + TSS.rsp0 wiring and the int 0x80
+     * syscall gate both work, before the ELF loader (Milestone 19.3,
+     * tested separately below once FAT32 is up) adds any more moving
+     * parts. Placed here (after heap/PMM/VMM are all live, before
+     * keyboard/ATA/FAT32) since it only needs the VMM's page-mapping API
+     * and the syscall gate, both already initialized by this point. */
+    serial_write_string("TEST: running Milestone 19.1/19.2 ring3 test blob...\n");
+    int ring3_ok = usermode_run_ring3_test();
+    serial_write_string("TEST: usermode_run_ring3_test() = ");
+    serial_write_string(ring3_ok ? "1 (OK)" : "0 (FAILED)");
+    serial_write_string("\n");
+    serial_write_string("TEST: syscall_last_caller_cs() = 0x");
+    serial_write_hex64(syscall_last_caller_cs());
+    serial_write_string(syscall_last_caller_cs() & 3 ? " (RPL=3 - genuinely called from ring 3)\n"
+                                                       : " (RPL != 3 - BUG, not actually ring 3)\n");
+#endif
+
     keyboard_init();
     serial_write_string("Keyboard driver initialized (IRQ1 unmasked)\n");
 
@@ -649,6 +670,18 @@ void _start(void) {
         }
         serial_write_string("TEST: directory growth cleanup = ");
         serial_write_string(grow_cleanup_ok ? "1 (all 20 deleted OK)" : "0 (FAILED)");
+        serial_write_string("\n");
+#endif
+#if defined(GOS_TEST_USERMODE)
+        /* Milestone 19.3: load and run the real, separately-built ELF64
+         * binary bundled on the disk image (tools/userland/hello.asm,
+         * linked to a fixed address distinct from the 19.1 blob's) -
+         * proves the loader itself, not just the ring3/syscall mechanics
+         * the 19.1/19.2 test above already covers. */
+        serial_write_string("TEST: running Milestone 19.3 ELF loader test (HELLO.ELF)...\n");
+        int elf_ok = usermode_run_elf("HELLO.ELF");
+        serial_write_string("TEST: usermode_run_elf(\"HELLO.ELF\") = ");
+        serial_write_string(elf_ok ? "1 (OK)" : "0 (FAILED)");
         serial_write_string("\n");
 #endif
     } else {
