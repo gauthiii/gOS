@@ -107,7 +107,7 @@ Fixing Track A first means Track B is built on a kernel whose fragile paths are 
 **Milestone 14.0: README.md updated for current state** *(living task — re-touched at end of Phase 14 and again at end of Track B)*
 - [x] Update `README.md` with gOS's architecture, bootloader (Limine/UEFI), language (C + NASM), filesystem (FAT32), windowing capabilities, and a "known limitations" section reflecting the Track A fixes landed so far (Phases 12–13) plus any Phase 14 items done at time of writing
 - [x] Re-touch at the end of Phase 14 (Track A complete) to reflect the full audit-remediated state
-- [ ] Re-touch at the end of Track B (Phase 16, or 17 if attempted) to reflect final v2 feature set
+- [x] Re-touch at the end of Track B (Phase 16, or 17 if attempted) to reflect final v2 feature set
 
 **Milestone 14.1: Medium findings**
 - [x] #12 Demo windows consuming slots (`kernel/src/start.c:503-505`) — auto-close demo windows ("Window A"/"Window B"/demo Text Editor) at end of boot sequence, or gate them behind a debug build flag. Test: boot in QEMU, confirm `window_create()` for a new real window succeeds without hitting `MAX_WINDOWS=8` prematurely (verify via serial window-count log)
@@ -173,15 +173,15 @@ Fixing Track A first means Track B is built on a kernel whose fragile paths are 
 
 ---
 
-### Phase 17 — Maximize & Polish (optional/stretch)
+### Phase 17 — Maximize & Polish (optional/stretch) ✅ Complete — see [phase17.md](phase17.md)
 **Estimated time: 6–10 hours (~1–1.5 weeks) — only scope in if Phase 16 lands cleanly**
 
 **Milestone 17.1: Maximize/restore toggle**
-- [ ] Add a maximize trigger that stores the window's pre-maximize geometry (x, y, width, height) and resizes it to fill the screen (minus taskbar height)
-- [ ] Add a restore trigger that reads back the stored geometry and returns the window to its prior size/position
-- [ ] Test: in QEMU, maximize a window, confirm it fills the screen above the taskbar; restore it and confirm exact geometry match against the pre-maximize state (log geometry values over serial before maximize and after restore, diff them)
+- [x] Add a maximize trigger that stores the window's pre-maximize geometry (x, y, width, height) and resizes it to fill the screen (minus taskbar height)
+- [x] Add a restore trigger that reads back the stored geometry and returns the window to its prior size/position
+- [x] Test: in QEMU, maximize a window, confirm it fills the screen above the taskbar; restore it and confirm exact geometry match against the pre-maximize state (log geometry values over serial before maximize and after restore, diff them)
 
-**Phase 17 exit criterion:** maximize/restore round-trips geometry exactly; if this phase runs over budget or introduces regressions in Phase 16's taskbar state, cut it — see Risk section.
+**Phase 17 exit criterion:** ✅ maximize/restore round-trips geometry exactly (137,211,333×141 → full-screen 0,0,1280×748 → back to 137,211,333×141, byte-for-byte); no regressions in Phase 16's taskbar/minimize state. Full writeup: [phase17.md](phase17.md).
 
 ---
 
@@ -251,8 +251,8 @@ Assuming the same ~7.5 hrs/week pace as the v1 plan:
 | 16 | 16.1 Window teardown | Full close cleanup (buttons, heap, callbacks) | Done | Already complete since Phase 13.6 (no heap-owned window fields exist); added `heap_free_bytes()` + a 20-cycle regression test to prove it — see [phase16.md](phase16.md) |
 | 16 | 16.2 Minimize | Minimized flag + compositor skip | Done | Titlebar "_" button (user chose titlebar-button over keyboard-shortcut); unsaved editor text survives minimize/restore |
 | 16 | 16.3 Taskbar | Taskbar render + restore/focus click handling | Done | Minimized entries dimmed; 3-window/2-minimized test confirms exact geometry + focus restored on click |
-| 17 | 17.1 Maximize (optional) | Maximize/restore geometry toggle | Not Started | |
-| — | 14.0 README update | Update README (post-Track-B pass) | Not Started | |
+| 17 | 17.1 Maximize (optional) | Maximize/restore geometry toggle | Done | Titlebar toggle button (teal square, left of minimize); exact round-trip proven numerically + visually — see [phase17.md](phase17.md) |
+| — | 14.0 README update | Update README (post-Track-B pass) | Done | Final v2 feature set (Phases 15-17) reflected — see this update |
 
 ---
 

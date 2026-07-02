@@ -879,6 +879,56 @@ void _start(void) {
                                            : " (matches baseline every iteration - no leak)\n");
     }
 #endif
+#if defined(GOS_TEST_MAXIMIZE_ROUNDTRIP)
+    /* Milestone 17.1 repro: create a window at an arbitrary non-origin
+     * geometry, maximize it, then restore it, logging x/y/w/h at each of
+     * the three points so a host script can diff "before" against "after
+     * restore" and confirm an exact round-trip - not just "restore ran
+     * without crashing." */
+    {
+        int w = window_create(137, 211, 333, 141, fb_make_color(180, 130, 70),
+                               fb_make_color(60, 40, 30), "Maximize Test");
+        struct window *win = window_get(w);
+        serial_write_string("TEST: before maximize x=");
+        serial_write_uint((uint64_t)win->x);
+        serial_write_string(" y=");
+        serial_write_uint((uint64_t)win->y);
+        serial_write_string(" w=");
+        serial_write_uint(win->w);
+        serial_write_string(" h=");
+        serial_write_uint(win->h);
+        serial_write_string("\n");
+
+        window_maximize_toggle(w);
+        serial_write_string("TEST: after maximize x=");
+        serial_write_uint((uint64_t)win->x);
+        serial_write_string(" y=");
+        serial_write_uint((uint64_t)win->y);
+        serial_write_string(" w=");
+        serial_write_uint(win->w);
+        serial_write_string(" h=");
+        serial_write_uint(win->h);
+        serial_write_string(" maximized=");
+        serial_write_uint((uint64_t)window_is_maximized(w));
+        serial_write_string("\n");
+
+        window_maximize_toggle(w);
+        serial_write_string("TEST: after restore x=");
+        serial_write_uint((uint64_t)win->x);
+        serial_write_string(" y=");
+        serial_write_uint((uint64_t)win->y);
+        serial_write_string(" w=");
+        serial_write_uint(win->w);
+        serial_write_string(" h=");
+        serial_write_uint(win->h);
+        serial_write_string(" maximized=");
+        serial_write_uint((uint64_t)window_is_maximized(w));
+        serial_write_string(win->x == 137 && win->y == 211 && win->w == 333 && win->h == 141
+                                 ? " (exact round-trip - OK)\n"
+                                 : " (MISMATCH - geometry did not round-trip)\n");
+        window_close(w);
+    }
+#endif
 #if defined(GOS_TEST_WINDOW_CREATE_FEEDBACK)
     /* Finding #17 repro: fill every remaining window slot, then attempt
      * to open the File Manager (which internally calls window_create())

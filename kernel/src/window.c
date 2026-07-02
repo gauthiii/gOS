@@ -5,6 +5,7 @@
 #include <fb.h>
 #include <font.h>
 #include <serial.h>
+#include <taskbar.h>
 
 static struct window windows[MAX_WINDOWS];
 static int z_order[MAX_WINDOWS]; /* z_order[0] = backmost, z_order[count-1] = frontmost */
@@ -47,6 +48,7 @@ int window_create(int64_t x, int64_t y, uint64_t w, uint64_t h,
     windows[idx].body_color = body_color;
     windows[idx].in_use = 1;
     windows[idx].minimized = 0;
+    windows[idx].maximized = 0;
     int i2 = 0;
     for (; i2 < WINDOW_TITLE_MAX - 1 && title && title[i2]; i2++) {
         windows[idx].title[i2] = title[i2];
@@ -197,6 +199,7 @@ void window_close(int win_index) {
     }
     windows[win_index].in_use = 0;
     windows[win_index].minimized = 0;
+    windows[win_index].maximized = 0;
     /* Clear everything else too, not just in_use - a closed slot must be
      * fully inert. Without this, a slot reused by window_create() later
      * would start from a still-configured previous window's buttons/
@@ -247,6 +250,44 @@ int window_is_minimized(int win_index) {
         return 0;
     }
     return windows[win_index].minimized;
+}
+
+void window_maximize_toggle(int win_index) {
+    if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
+        return;
+    }
+    struct window *win = &windows[win_index];
+    if (win->maximized) {
+        win->x = win->restore_x;
+        win->y = win->restore_y;
+        win->w = win->restore_w;
+        win->h = win->restore_h;
+        win->maximized = 0;
+    } else {
+        win->restore_x = win->x;
+        win->restore_y = win->y;
+        win->restore_w = win->w;
+        win->restore_h = win->h;
+        win->x = 0;
+        win->y = 0;
+        win->w = fb_width();
+        /* h is the BODY height (titlebar is drawn above it) - subtract both
+         * the titlebar and the taskbar strip so the maximized window fills
+         * everything else exactly, with no bleed under the taskbar. */
+        uint64_t reserved = WINDOW_TITLEBAR_HEIGHT + TASKBAR_HEIGHT;
+        win->h = (fb_height() > reserved) ? (fb_height() - reserved) : 0;
+        win->maximized = 1;
+    }
+    if (dragging_window == win_index) {
+        dragging_window = -1;
+    }
+}
+
+int window_is_maximized(int win_index) {
+    if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
+        return 0;
+    }
+    return windows[win_index].maximized;
 }
 
 int window_point_hits_any(int64_t px, int64_t py) {
@@ -306,14 +347,24 @@ void window_system_update(void) {
             int64_t close_y = win->y + WINDOW_CLOSE_BUTTON_MARGIN;
             int64_t min_x = close_x - WINDOW_MINIMIZE_BUTTON_GAP - WINDOW_MINIMIZE_BUTTON_SIZE;
             int64_t min_y = win->y + WINDOW_CLOSE_BUTTON_MARGIN;
+            int64_t max_btn_x = min_x - WINDOW_MAXIMIZE_BUTTON_GAP - WINDOW_MAXIMIZE_BUTTON_SIZE;
+            int64_t max_btn_y = win->y + WINDOW_CLOSE_BUTTON_MARGIN;
             if (point_in_rect(mx, my, close_x, close_y, WINDOW_CLOSE_BUTTON_SIZE, WINDOW_CLOSE_BUTTON_SIZE)) {
                 window_close(hit);
             } else if (point_in_rect(mx, my, min_x, min_y, WINDOW_MINIMIZE_BUTTON_SIZE, WINDOW_MINIMIZE_BUTTON_SIZE)) {
                 window_minimize(hit);
+            } else if (point_in_rect(mx, my, max_btn_x, max_btn_y, WINDOW_MAXIMIZE_BUTTON_SIZE, WINDOW_MAXIMIZE_BUTTON_SIZE)) {
+                window_maximize_toggle(hit);
             } else if (point_in_rect(mx, my, win->x, win->y, win->w, WINDOW_TITLEBAR_HEIGHT)) {
-                dragging_window = hit;
-                drag_offset_x = mx - win->x;
-                drag_offset_y = my - win->y;
+                /* Milestone 17.1: dragging a maximized window doesn't make
+                 * sense (it fills the screen) - require restoring first via
+                 * the maximize button, matching the button-only toggle
+                 * design the user chose over double-click-to-restore. */
+                if (!win->maximized) {
+                    dragging_window = hit;
+                    drag_offset_x = mx - win->x;
+                    drag_offset_y = my - win->y;
+                }
             } else {
                 /* Click landed in the body - check buttons first. */
                 int64_t local_x = mx - win->x;
@@ -415,10 +466,14 @@ static void draw_window(struct window *win) {
 
     /* Title text, clipped to the title bar rect so a long title can never
      * spill out into the body or past the window's right edge, leaving
-     * room on the right for the close button drawn below. */
+     * room on the right for the close/minimize/maximize buttons drawn
+     * below. */
+    int64_t reserved_right = WINDOW_CLOSE_BUTTON_SIZE + WINDOW_CLOSE_BUTTON_MARGIN
+                            + WINDOW_MINIMIZE_BUTTON_SIZE + WINDOW_MINIMIZE_BUTTON_GAP
+                            + WINDOW_MAXIMIZE_BUTTON_SIZE + WINDOW_MAXIMIZE_BUTTON_GAP + WINDOW_CLOSE_BUTTON_MARGIN;
     fb_draw_string_clipped(win->x + 6, win->y + (WINDOW_TITLEBAR_HEIGHT - FONT_HEIGHT) / 2,
                             win->title, fb_make_color(255, 255, 255), win->titlebar_color,
-                            win->x, win->y, win->w - WINDOW_CLOSE_BUTTON_SIZE - 2 * WINDOW_CLOSE_BUTTON_MARGIN,
+                            win->x, win->y, win->w - (uint64_t)reserved_right,
                             WINDOW_TITLEBAR_HEIGHT);
 
     /* Milestone 11.2: a small red "X" close button at the top-right of
@@ -442,6 +497,30 @@ static void draw_window(struct window *win) {
         fb_draw_rect_outline(mx, my, WINDOW_MINIMIZE_BUTTON_SIZE, WINDOW_MINIMIZE_BUTTON_SIZE, fb_make_color(0, 0, 0), 1);
         fb_draw_line(mx + 3, my + WINDOW_MINIMIZE_BUTTON_SIZE - 5, mx + WINDOW_MINIMIZE_BUTTON_SIZE - 4,
                      my + WINDOW_MINIMIZE_BUTTON_SIZE - 5, fb_make_color(0, 0, 0));
+    }
+
+    /* Milestone 17.1: a small blue-green square maximize/restore toggle
+     * button immediately to the left of the minimize button, hit-tested in
+     * window_system_update(). Drawn as a hollow square (maximize) or a
+     * smaller offset square (restore) so the two states are visually
+     * distinguishable, matching the close/minimize buttons' convention of
+     * a simple glyph rather than text. */
+    {
+        int64_t close_x = win->x + (int64_t)win->w - WINDOW_CLOSE_BUTTON_SIZE - WINDOW_CLOSE_BUTTON_MARGIN;
+        int64_t min_x = close_x - WINDOW_MINIMIZE_BUTTON_GAP - WINDOW_MINIMIZE_BUTTON_SIZE;
+        int64_t mx = min_x - WINDOW_MAXIMIZE_BUTTON_GAP - WINDOW_MAXIMIZE_BUTTON_SIZE;
+        int64_t my = win->y + WINDOW_CLOSE_BUTTON_MARGIN;
+        fb_draw_rect(mx, my, WINDOW_MAXIMIZE_BUTTON_SIZE, WINDOW_MAXIMIZE_BUTTON_SIZE, fb_make_color(90, 170, 170));
+        fb_draw_rect_outline(mx, my, WINDOW_MAXIMIZE_BUTTON_SIZE, WINDOW_MAXIMIZE_BUTTON_SIZE, fb_make_color(0, 0, 0), 1);
+        if (win->maximized) {
+            /* Restore glyph: two overlapping offset squares. */
+            fb_draw_rect_outline(mx + 2, my + 4, 8, 8, fb_make_color(0, 0, 0), 1);
+            fb_draw_rect_outline(mx + 5, my + 2, 8, 8, fb_make_color(0, 0, 0), 1);
+        } else {
+            /* Maximize glyph: one square. */
+            fb_draw_rect_outline(mx + 3, my + 3, WINDOW_MAXIMIZE_BUTTON_SIZE - 6, WINDOW_MAXIMIZE_BUTTON_SIZE - 6,
+                                 fb_make_color(0, 0, 0), 1);
+        }
     }
 
     for (int i = 0; i < MAX_WIDGETS_PER_WINDOW; i++) {

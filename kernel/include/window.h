@@ -14,6 +14,10 @@
  * button, same size, 4px gap between the two. */
 #define WINDOW_MINIMIZE_BUTTON_SIZE 16
 #define WINDOW_MINIMIZE_BUTTON_GAP 4
+/* Milestone 17.1: maximize button sits immediately to the left of the
+ * minimize button, same size/gap pattern. */
+#define WINDOW_MAXIMIZE_BUTTON_SIZE 16
+#define WINDOW_MAXIMIZE_BUTTON_GAP 4
 #define BUTTON_LABEL_MAX 16
 
 typedef void (*button_callback_t)(void);
@@ -55,6 +59,9 @@ struct window {
     char title[WINDOW_TITLE_MAX];
     int in_use;
     int minimized; /* Milestone 16.2: state/buttons/textbox preserved, just not drawn or hit-tested */
+    int maximized; /* Milestone 17.1: x/y/w/h below reflect the maximized geometry; restore_* holds the pre-maximize geometry */
+    int64_t restore_x, restore_y;
+    uint64_t restore_w, restore_h;
     struct button buttons[MAX_WIDGETS_PER_WINDOW];
 
     int has_textbox;
@@ -134,6 +141,17 @@ void window_restore(int win_index);
 /* Returns 1 if the window is currently minimized, 0 otherwise (including
  * for an invalid/closed index). */
 int window_is_minimized(int win_index);
+
+/* Milestone 17.1: toggles a window between its normal geometry and filling
+ * the screen (minus the taskbar). The first call saves the current x/y/w/h
+ * into restore_* and resizes to fill the screen; the next call reads
+ * restore_* back exactly, so geometry round-trips precisely regardless of
+ * how many toggles happen. No-op on an invalid/closed index. */
+void window_maximize_toggle(int win_index);
+
+/* Returns 1 if the window is currently maximized, 0 otherwise (including
+ * for an invalid/closed index). */
+int window_is_maximized(int win_index);
 
 /* Feeds the current mouse state into the window system: handles
  * click-to-focus, title-bar dragging, and button click dispatch. Must be

@@ -4,7 +4,7 @@ A hobby x86_64 operating system, built completely from scratch: no existing kern
 
 gOS boots via [Limine](https://github.com/limine-bootloader/limine) into a desktop with a background, a taskbar, and a "Files" launcher icon; draws directly to a framebuffer; runs its own windowing system with draggable/overlappable/closable windows; renders its own bitmap-font text; reads and writes a real FAT32 disk image through a hand-written ATA PIO driver; and has a graphical File Manager with full CRUD — create folders/files, open and edit text files, save with Ctrl+S, delete, and rename — all backed by the real filesystem, not a mock. Unhandled CPU exceptions show a red kernel panic screen instead of silently hanging.
 
-Development is tracked as a sequence of phases. v1.0 (Phases 0–11) is documented in [version1/PROJECT_PLAN.md](version1/PROJECT_PLAN.md), each with its own detailed write-up (`version1/phase0.md` through `version1/phase11.md`). Past v1.0, [version1/phase-patch.md](version1/phase-patch.md) documents a follow-up patch (a real hang fix plus unlabeled-button UX fix), and [version1/audit.md](version1/audit.md) is a standalone, read-only flaw audit of the whole v1.0 kernel (24 ranked findings). [project-plan-2.md](project-plan-2.md) is the current v2 plan: **Track A** (fixing every audit finding) followed by **Track B** (new features) — see [phase12.md](phase12.md), [phase13.md](phase13.md), and [phase14.md](phase14.md) for Track A's three phases, and [phase15.md](phase15.md)/[phase16.md](phase16.md) for Track B.
+Development is tracked as a sequence of phases. v1.0 (Phases 0–11) is documented in [version1/PROJECT_PLAN.md](version1/PROJECT_PLAN.md), each with its own detailed write-up (`version1/phase0.md` through `version1/phase11.md`). Past v1.0, [version1/phase-patch.md](version1/phase-patch.md) documents a follow-up patch (a real hang fix plus unlabeled-button UX fix), and [version1/audit.md](version1/audit.md) is a standalone, read-only flaw audit of the whole v1.0 kernel (24 ranked findings). [project-plan-2.md](project-plan-2.md) is the v2 plan: **Track A** (fixing every audit finding) followed by **Track B** (new features), both now complete — see [phase12.md](phase12.md), [phase13.md](phase13.md), and [phase14.md](phase14.md) for Track A's three phases, and [phase15.md](phase15.md)/[phase16.md](phase16.md)/[phase17.md](phase17.md) for Track B's three.
 
 ---
 
@@ -24,7 +24,7 @@ gOS targets a real (or emulated) x86_64 PC. The numbers below are the environmen
 | **Filesystem** | FAT32, hand-written from scratch (BPB parsing, cluster-chain walking with cycle detection, directory entries, 8.3 names only — no long filenames) |
 | **Display** | Framebuffer graphics via Limine's GOP handoff, currently 1280x800 (whatever resolution Limine/UEFI negotiates), 32bpp, double-buffered |
 | **Input** | PS/2 keyboard (with extended 0xE0-prefixed scancode handling) and PS/2 mouse only — no USB HID beyond QEMU's emulated PS/2 translation |
-| **Windowing** | Custom compositor: up to `MAX_WINDOWS = 8` simultaneous windows, draggable/overlappable/z-ordered/closable/minimizable, with a persistent taskbar for restore/focus — no resize/maximize yet |
+| **Windowing** | Custom compositor: up to `MAX_WINDOWS = 8` simultaneous windows, draggable/overlappable/z-ordered/closable/minimizable/maximizable, with a persistent taskbar for restore/focus — no free-form resize (drag-to-resize an edge/corner) |
 | **Text rendering** | Hand-embedded 8x8 bitmap font (no font file loading, no anti-aliasing, no Unicode — ASCII only) |
 | **Memory management** | Bitmap physical page allocator, 4-level paging (kernel controls its own page tables), `kmalloc`/`kfree` heap allocator with double-free detection, dedicated 16 KiB IST1 stack for double-fault/NMI |
 | **Interrupts** | Custom GDT/IDT/TSS, PIC-remapped hardware IRQs, spurious-IRQ7/15 detection |
@@ -33,12 +33,12 @@ gOS targets a real (or emulated) x86_64 PC. The numbers below are the environmen
 | **Multi-user / permissions** | None — single implicit user, no privilege separation, kernel memory mapped uniformly RWX (no W^X enforcement) |
 | **Toolchain** | `x86_64-elf-gcc` (freestanding, no libc), NASM, `x86_64-elf-gdb`, built and tested on macOS + QEMU (Linux hosts work with equivalent packages) |
 
-**Status: v1.0 complete, plus post-v1.0 patch, plus Track A (all 24 audit findings fixed), plus Track B Phases 15–16 (cursor/wallpaper, window minimize/close/taskbar).** Toolchain → bootloader → interrupts → memory management → drivers → graphics → windowing → fonts/text input → FAT32 filesystem → file manager UI → CRUD operations → polish/stability (v1.0) → 5 Critical + 6 High + 12 Medium/Low audit fixes (Track A, Phases 12–14) → real arrow cursor + gradient/BMP wallpaper (Track B, Phase 15) → window minimize + persistent taskbar restore/focus (Track B, Phase 16). The optional Phase 17 (maximize) has not started yet — see [project-plan-2.md](project-plan-2.md)'s status tracker.
+**Status: v1.0 complete, plus post-v1.0 patch, plus Track A (all 24 audit findings fixed), plus all of Track B (Phases 15–17: cursor/wallpaper, window minimize/close/taskbar, maximize). v2 is now feature-complete per [project-plan-2.md](project-plan-2.md).** Toolchain → bootloader → interrupts → memory management → drivers → graphics → windowing → fonts/text input → FAT32 filesystem → file manager UI → CRUD operations → polish/stability (v1.0) → 5 Critical + 6 High + 12 Medium/Low audit fixes (Track A, Phases 12–14) → real arrow cursor + gradient/BMP wallpaper (Track B, Phase 15) → window minimize + persistent taskbar restore/focus (Track B, Phase 16) → window maximize/restore (Track B, Phase 17).
 
 ### Known limitations
 
-- **v1.0 scope boundaries** (still true post-Track-A/Phase-16): no networking, no multi-core/SMP, no sound, no USB beyond QEMU's emulated PS/2, no real package manager, no POSIX compatibility, no multi-user/permissions, no JIT/scripting layer, no fine-grained W^X page permissions (kernel mapped uniformly RWX), no window resizing/maximize.
-- **Phase 17 not started (optional/stretch)**: no window maximize/restore-to-prior-geometry toggle.
+- **v1.0 scope boundaries** (still true post-Track-B): no networking, no multi-core/SMP, no sound, no USB beyond QEMU's emulated PS/2, no real package manager, no POSIX compatibility, no multi-user/permissions, no JIT/scripting layer, no fine-grained W^X page permissions (kernel mapped uniformly RWX).
+- **No free-form window resize**: a window can be dragged, minimized, and maximized/restored to its exact prior geometry, but there's no drag-an-edge-or-corner resize handle.
 - **Environment-specific hardware assumptions carried from v1.0**: single ATA drive on the primary master IDE channel (no secondary channel, no AHCI/NVMe), legacy 8259 PIC only (no APIC/x2APIC), PS/2 keyboard/mouse only.
 - **Known-safe-by-convention, not by construction**: `fm.c`'s double-click file identity is tracked by row index, not filename — safe today only because every listing-mutating code path calls `fm_refresh()` first (see Finding #24 in [phase14.md](phase14.md)); documented as an explicit invariant rather than hardened against.
 
@@ -62,6 +62,7 @@ gOS targets a real (or emulated) x86_64 PC. The numbers below are the environmen
 - **Post-v1.0 audit remediation (Track A, Phases 12–14):** a dedicated IST stack for double-fault/NMI so a stack overflow shows the panic screen instead of a triple-fault reset; FAT32 chain-walk cycle detection so a corrupted disk can't hang the kernel; `kfree()` double-free detection; `vmm_unmap_page()` with proper TLB invalidation; an ATA drive-presence probe so a missing disk fails fast instead of burning a ~100,000-iteration busy-wait; window drag coordinates clamped to the screen edge; every `window_create()` call site checked, with a new on-screen flash-message mechanism surfacing failures the user would otherwise never see; and 15 further correctness/robustness fixes — see [phase12.md](phase12.md), [phase13.md](phase13.md), [phase14.md](phase14.md) for the full list, each with a live before/after QEMU reproduction of the original bug
 - **Cursor & wallpaper (Track B, Phase 15):** a real 12x19 arrow-shaped mouse cursor with transparency, drawn in the compositor's true top layer (above every window and the taskbar); a desktop wallpaper layer — a vertical gradient by default, or a hand-decoded 24bpp BMP image (`WALLPAPR.BMP`) bundled on the FAT32 disk image and loaded through the hardened FAT32 read path, with graceful fallback to the gradient if the file is missing or malformed — see [phase15.md](phase15.md)
 - **Window minimize & taskbar restore (Track B, Phase 16):** every window now has a titlebar minimize ("_") button alongside the close ("X") button — minimizing hides a window (state, buttons, and any unsaved textbox content fully preserved) without tearing it down; the taskbar visually dims a minimized window's entry and restores-then-focuses it on click, while an already-visible entry's click just focuses it as before; window teardown on close was verified leak-free with a real heap measurement across 20 open/close cycles — see [phase16.md](phase16.md)
+- **Window maximize/restore (Track B, Phase 17):** a third titlebar button (a teal square, toggling to two overlapping squares when maximized) fills a window to the full screen minus the taskbar, and restores it to its exact prior position and size on a second click — proven to round-trip geometry exactly via both a numeric before/after/restore log and a live visual test; dragging is disabled while maximized (restore first) — see [phase17.md](phase17.md)
 
 ---
 
@@ -342,6 +343,23 @@ Clicking the dialog's entry restores it too, to its exact original position (160
 
 ![Dialog restored and frontmost](screenshots/phase16_dialog_restored_via_taskbar.png)
 
+### Phase 17 — Maximize & Polish (Track B)
+
+**Before maximizing: normal window size, three-button titlebar** ([phase17.md](phase17.md), Milestone 17.1)
+The Text Editor at its regular 380×220 size — every window now has a teal square maximize button in addition to Phase 16's minimize and close buttons.
+
+![Editor before maximizing, three titlebar buttons visible](screenshots/phase17_before_max.png)
+
+**Maximized: fills the screen exactly down to the taskbar** ([phase17.md](phase17.md), Milestone 17.1)
+One click on the maximize button and the editor fills the entire screen, with no gap or overlap at the taskbar edge and the wallpaper/File Manager fully hidden underneath.
+
+![Editor maximized, filling the screen above the taskbar](screenshots/phase17_maximized.png)
+
+**Restored: back to the exact original position and size** ([phase17.md](phase17.md), Milestone 17.1)
+Clicking the button again (now showing the restore glyph) returns the window to precisely where it was — verified both visually here and numerically in the phase doc (137,211,333×141 in, 137,211,333×141 out).
+
+![Editor restored to its exact original geometry](screenshots/phase17_restored.png)
+
 ---
 
 ## Project structure
@@ -365,6 +383,7 @@ phase13.md           Track A, Phase 2: 6 High-severity audit fixes
 phase14.md           Track A, Phase 3: 12 Medium/Low audit fixes (Track A now complete)
 phase15.md           Track B, Phase 1: real arrow cursor + gradient/BMP wallpaper
 phase16.md           Track B, Phase 2: window minimize + persistent taskbar restore/focus
+phase17.md           Track B, Phase 3: window maximize/restore (Track B now complete)
 version1/            all v1.0 planning/completion docs, moved here after v2 planning began
   PROJECT_PLAN.md     the full phase-by-phase roadmap and status tracker
   phase0.md ... phase11.md   detailed completion report for each finished phase
@@ -380,6 +399,7 @@ version1/            all v1.0 planning/completion docs, moved here after v2 plan
 - [phase12.md](phase12.md), [phase13.md](phase13.md), [phase14.md](phase14.md) — Track A's three phases: every one of the 24 audit findings, each with the fix, a live QEMU reproduction of the original bug (before/after), and exact commands to reproduce every test
 - [phase15.md](phase15.md) — Track B's first phase: the real arrow cursor, gradient wallpaper, and BMP wallpaper loader, each with a "command to test" and a "command to see", plus an independent host-side pixel cross-check against the source BMP
 - [phase16.md](phase16.md) — Track B's second phase: window minimize and taskbar restore/focus, each with a "command to test" and a "command to see", a real heap-leak regression measurement for window teardown, and a documented test-script bug (not a kernel bug) found while verifying dynamic taskbar reordering
+- [phase17.md](phase17.md) — Track B's third and final phase: window maximize/restore, with an exact geometry round-trip proven both numerically (a debug build logging x/y/w/h at each step) and visually — Track B is complete as of this phase
 - [version1/PROJECT_PLAN.md](version1/PROJECT_PLAN.md) — full v1.0 project scope, phase breakdown, dependency graph, and status tracker
 - `version1/phase0.md` through `version1/phase11.md` — one detailed write-up per completed v1.0 phase: what was built, exact commands to reproduce every test, and any real bugs found (with symptom/diagnosis/fix)
 - [version1/phase-patch.md](version1/phase-patch.md) — the post-v1.0 patch: diagnosis and fix for a real desktop-hang bug, plus the unlabeled-button UX fix
