@@ -55,15 +55,45 @@ void pmm_init(struct limine_memmap_response *memmap, uint64_t hhdm_offset) {
     highest_page_index = highest_addr / PAGE_SIZE;
     bitmap_size_bytes = (highest_page_index + 7) / 8;
 
-    /* Find a USABLE region large enough to hold the bitmap itself. */
+    /* Finding #20: memmap->entries is itself a live array (of pointers to
+     * limine_memmap_entry structs) that this same function keeps reading
+     * from after the bitmap is placed and initialized below - if the
+     * bitmap's chosen physical range happened to overlap that array's own
+     * backing memory, initializing/writing the bitmap would corrupt the
+     * very memmap data being iterated later in this function. Limine
+     * places its response structures within the HHDM-covered range, so
+     * entries' physical location is recoverable by subtracting hhdm_off
+     * back out of the (already HHDM-mapped) pointer Limine handed us. */
+    uint64_t memmap_array_phys_start = (uint64_t)memmap->entries - hhdm_off;
+    uint64_t memmap_array_phys_end = memmap_array_phys_start +
+                                      memmap->entry_count * sizeof(struct limine_memmap_entry *);
+
+    /* Find a USABLE region large enough to hold the bitmap itself, that
+     * doesn't overlap the memmap entries array. */
     uint64_t bitmap_phys = 0;
     for (uint64_t i = 0; i < memmap->entry_count; i++) {
         struct limine_memmap_entry *e = memmap->entries[i];
-        if (e->type == LIMINE_MEMMAP_USABLE && e->length >= bitmap_size_bytes) {
-            bitmap_phys = e->base;
-            break;
+        if (e->type != LIMINE_MEMMAP_USABLE || e->length < bitmap_size_bytes) {
+            continue;
         }
+        uint64_t cand_start = e->base;
+        uint64_t cand_end = e->base + bitmap_size_bytes;
+        int overlaps_memmap_array = (cand_start < memmap_array_phys_end) &&
+                                     (memmap_array_phys_start < cand_end);
+        if (overlaps_memmap_array) {
+            serial_write_string("PMM: skipping bitmap candidate region 0x");
+            serial_write_hex64(cand_start);
+            serial_write_string(" - overlaps Limine's memmap entries array\n");
+            continue;
+        }
+        bitmap_phys = cand_start;
+        break;
     }
+    serial_write_string("PMM: memmap entries array physical range 0x");
+    serial_write_hex64(memmap_array_phys_start);
+    serial_write_string(" - 0x");
+    serial_write_hex64(memmap_array_phys_end);
+    serial_write_string(" (bitmap placement excludes this range)\n");
 
     serial_write_string("PMM: highest physical address: ");
     serial_write_hex64(highest_addr);

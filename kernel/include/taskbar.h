@@ -13,4 +13,10 @@ void taskbar_update(void);
  * that far. */
 void taskbar_render(void);
 
+/* Findings #17/#23: a brief on-screen text flash for user-facing failures
+ * that would otherwise be silent (window_create() exhausted, a dialog
+ * request dropped because one's already open, etc). Shown as a message
+ * above the taskbar for a couple of seconds, drawn by taskbar_render(). */
+void taskbar_flash_message(const char *msg);
+
 #endif

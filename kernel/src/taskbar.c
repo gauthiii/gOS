@@ -3,11 +3,26 @@
 #include <fb.h>
 #include <font.h>
 #include <mouse.h>
+#include <timer.h>
 
 #define ENTRY_WIDTH 120
 #define ENTRY_GAP 4
+#define FLASH_DURATION_TICKS (PIT_FREQUENCY_HZ * 2) /* ~2 seconds at 100Hz */
+#define FLASH_MESSAGE_MAX 64
 
 static uint8_t prev_buttons = 0;
+
+static char flash_message[FLASH_MESSAGE_MAX];
+static uint64_t flash_expiry_tick = 0;
+
+void taskbar_flash_message(const char *msg) {
+    int i = 0;
+    for (; i < FLASH_MESSAGE_MAX - 1 && msg[i]; i++) {
+        flash_message[i] = msg[i];
+    }
+    flash_message[i] = '\0';
+    flash_expiry_tick = timer_get_ticks() + FLASH_DURATION_TICKS;
+}
 
 static int64_t entry_x(int slot) {
     return ENTRY_GAP + slot * (ENTRY_WIDTH + ENTRY_GAP);
@@ -62,5 +77,12 @@ void taskbar_render(void) {
                                 fb_make_color(255, 255, 255),
                                 is_frontmost ? fb_make_color(80, 80, 130) : fb_make_color(60, 60, 65),
                                 ex, bar_y, ENTRY_WIDTH, TASKBAR_HEIGHT);
+    }
+
+    if (flash_message[0] != '\0' && timer_get_ticks() < flash_expiry_tick) {
+        int64_t flash_y = bar_y - FONT_HEIGHT - 6;
+        int64_t flash_w = fb_width();
+        fb_draw_rect(0, flash_y, flash_w, FONT_HEIGHT + 4, fb_make_color(120, 40, 40));
+        fb_draw_string(6, flash_y + 2, flash_message, fb_make_color(255, 255, 255), fb_make_color(120, 40, 40));
     }
 }

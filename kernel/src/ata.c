@@ -22,6 +22,9 @@
 #define ATA_CMD_READ_SECTORS  0x20
 #define ATA_CMD_WRITE_SECTORS 0x30
 #define ATA_CMD_CACHE_FLUSH   0xE7
+#define ATA_CMD_IDENTIFY      0xEC
+
+static int drive_present = 0;
 
 static inline void outb(uint16_t port, uint8_t val) {
     __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
@@ -50,8 +53,15 @@ static void io_wait(void) {
     inb(ATA_PRIMARY_CONTROL);
 }
 
+#if defined(GOS_TEST_ATA_PROBE)
+uint32_t ata_debug_busy_wait_reads = 0;
+#endif
+
 static int ata_wait_not_busy(void) {
     for (int timeout = 100000; timeout > 0; timeout--) {
+#if defined(GOS_TEST_ATA_PROBE)
+        ata_debug_busy_wait_reads++;
+#endif
         uint8_t status = inb(ATA_PRIMARY_STATUS);
         if (!(status & ATA_STATUS_BSY)) {
             return 1;
@@ -62,6 +72,9 @@ static int ata_wait_not_busy(void) {
 
 static int ata_wait_drq(void) {
     for (int timeout = 100000; timeout > 0; timeout--) {
+#if defined(GOS_TEST_ATA_PROBE)
+        ata_debug_busy_wait_reads++;
+#endif
         uint8_t status = inb(ATA_PRIMARY_STATUS);
         if (status & ATA_STATUS_ERR) {
             return 0;
@@ -75,7 +88,46 @@ static int ata_wait_drq(void) {
 
 void ata_init(void) {
     io_wait();
-    serial_write_string("ATA: primary master initialized (PIO, ports 0x1F0-0x1F7/0x3F6)\n");
+
+    /* Finding #15: probe for a real drive via IDENTIFY before trusting
+     * the bus at all. Without this, every read/write call burns the
+     * full ~100,000-iteration busy-wait in ata_wait_not_busy()/
+     * ata_wait_drq() before failing when no drive is attached - a single
+     * fast "status == 0 means nothing's there" check up front avoids
+     * that repeated, compounding stall for every I/O call afterward. */
+    outb(ATA_PRIMARY_DRIVE_HEAD, 0xA0);
+    io_wait();
+    outb(ATA_PRIMARY_SECCOUNT, 0);
+    outb(ATA_PRIMARY_LBA_LOW, 0);
+    outb(ATA_PRIMARY_LBA_MID, 0);
+    outb(ATA_PRIMARY_LBA_HIGH, 0);
+    outb(ATA_PRIMARY_COMMAND, ATA_CMD_IDENTIFY);
+
+    uint8_t status = inb(ATA_PRIMARY_STATUS);
+    if (status == 0) {
+        /* Per the OSDev Wiki IDENTIFY procedure: a status of 0 right
+         * after selecting the drive and issuing IDENTIFY means the
+         * drive doesn't exist at all - no need to poll further. */
+        drive_present = 0;
+        serial_write_string("ATA: no drive detected on primary master (status=0x00) - I/O calls will fail fast\n");
+        return;
+    }
+
+    if (!ata_wait_not_busy() || !ata_wait_drq()) {
+        drive_present = 0;
+        serial_write_string("ATA: drive present but IDENTIFY did not complete - treating as absent\n");
+        return;
+    }
+
+    /* Drain the 256-word IDENTIFY response so the drive isn't left with
+     * pending data the next real command might trip over; the contents
+     * aren't parsed since only presence, not capability details, is
+     * needed here. */
+    static uint16_t identify_buf[256];
+    insw(ATA_PRIMARY_DATA, identify_buf, 256);
+
+    drive_present = 1;
+    serial_write_string("ATA: primary master initialized (PIO, ports 0x1F0-0x1F7/0x3F6), drive detected\n");
 }
 
 static void ata_setup_lba(uint32_t lba) {
@@ -87,6 +139,9 @@ static void ata_setup_lba(uint32_t lba) {
 }
 
 int ata_read_sector(uint32_t lba, uint8_t *buffer) {
+    if (!drive_present) {
+        return 0; /* fail fast instead of burning the full busy-wait timeout */
+    }
     if (!ata_wait_not_busy()) {
         return 0;
     }
@@ -101,6 +156,9 @@ int ata_read_sector(uint32_t lba, uint8_t *buffer) {
 }
 
 int ata_write_sector(uint32_t lba, const uint8_t *buffer) {
+    if (!drive_present) {
+        return 0; /* fail fast instead of burning the full busy-wait timeout */
+    }
     if (!ata_wait_not_busy()) {
         return 0;
     }

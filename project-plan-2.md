@@ -101,32 +101,32 @@ Fixing Track A first means Track B is built on a kernel whose fragile paths are 
 
 ---
 
-### Phase 14 — Medium/Low Audit Cleanup
-**Estimated time: 14–20 hours (~2–2.5 weeks)**
+### Phase 14 — Medium/Low Audit Cleanup ✅ Complete — see [phase14.md](phase14.md)
+**Estimated time: 14–20 hours (~2–2.5 weeks) — actual: ~10 hours**
 
 **Milestone 14.0: README.md updated for current state** *(living task — re-touched at end of Phase 14 and again at end of Track B)*
-- [ ] Update `README.md` with gOS's architecture, bootloader (Limine/UEFI), language (C + NASM), filesystem (FAT32), windowing capabilities, and a "known limitations" section reflecting the Track A fixes landed so far (Phases 12–13) plus any Phase 14 items done at time of writing
-- [ ] Re-touch at the end of Phase 14 (Track A complete) to reflect the full audit-remediated state
+- [x] Update `README.md` with gOS's architecture, bootloader (Limine/UEFI), language (C + NASM), filesystem (FAT32), windowing capabilities, and a "known limitations" section reflecting the Track A fixes landed so far (Phases 12–13) plus any Phase 14 items done at time of writing
+- [x] Re-touch at the end of Phase 14 (Track A complete) to reflect the full audit-remediated state
 - [ ] Re-touch at the end of Track B (Phase 16, or 17 if attempted) to reflect final v2 feature set
 
 **Milestone 14.1: Medium findings**
-- [ ] #12 Demo windows consuming slots (`kernel/src/start.c:503-505`) — auto-close demo windows ("Window A"/"Window B"/demo Text Editor) at end of boot sequence, or gate them behind a debug build flag. Test: boot in QEMU, confirm `window_create()` for a new real window succeeds without hitting `MAX_WINDOWS=8` prematurely (verify via serial window-count log)
-- [ ] #13 0xE0 extended-scancode prefix (`kernel/src/keyboard.c`) — track a "pending extended" flag across the IRQ1 handler's two-byte sequence, distinguish Right Ctrl/Numpad Enter from their non-extended counterparts. Test: QEMU monitor `sendkey ctrl_r` vs `sendkey ctrl` and confirm distinct handling via serial log
-- [ ] #14 Spurious IRQ7/15 not detected (`kernel/src/pic.c`) — read the ISR register before sending EOI, and for a spurious IRQ15 send EOI to the master PIC only. Test: this is hard to fault-inject in QEMU directly; verify via code inspection plus a serial log line confirming the ISR-register read executes on every EOI call during normal operation
-- [ ] #15 No ATA drive-presence probe (`kernel/src/ata.c` `ata_init`) — add an `IDENTIFY`-based fast-fail check before falling into the full busy-wait path. Test: in QEMU, boot with `-drive` omitted (no disk attached) on a scratch config and confirm `ata_init` fails fast (check serial timestamp delta) instead of burning the full busy-wait
-- [ ] #16 `stress_test()` file leak on partial failure (`kernel/src/start.c:87-93`) — add cleanup (delete any partially-created `STRESS.TXT`/`STRESSR.TXT`) on the `break` path. Test: temporarily force a mid-loop failure (e.g. stub a write call to fail) and confirm via `mdir` on the built image that no stress-test file remains afterward
-- [ ] #17 Unchecked `window_create()` return value (`fm.c`, `editor.c`, `start.c` call sites) — check for `-1`/failure at each call site and log or show user feedback (e.g. reuse the dialog "ignored" pattern from #23) instead of silently no-oping. Test: in QEMU, open windows until `MAX_WINDOWS=8` is hit, then attempt "New Folder"; confirm a serial log line (or on-screen indication) reports the failure instead of doing nothing visibly
+- [x] #12 Demo windows consuming slots (`kernel/src/start.c:503-505`) — auto-close demo windows ("Window A"/"Window B"/demo Text Editor) at end of boot sequence, or gate them behind a debug build flag. Test: boot in QEMU, confirm `window_create()` for a new real window succeeds without hitting `MAX_WINDOWS=8` prematurely (verify via serial window-count log)
+- [x] #13 0xE0 extended-scancode prefix (`kernel/src/keyboard.c`) — track a "pending extended" flag across the IRQ1 handler's two-byte sequence, distinguish Right Ctrl/Numpad Enter from their non-extended counterparts. Test: QEMU monitor `sendkey ctrl_r` vs `sendkey ctrl` and confirm distinct handling via serial log
+- [x] #14 Spurious IRQ7/15 not detected (`kernel/src/pic.c`) — read the ISR register before sending EOI, and for a spurious IRQ15 send EOI to the master PIC only. Test: this is hard to fault-inject in QEMU directly; verify via code inspection plus a serial log line confirming the ISR-register read executes on every EOI call during normal operation
+- [x] #15 No ATA drive-presence probe (`kernel/src/ata.c` `ata_init`) — add an `IDENTIFY`-based fast-fail check before falling into the full busy-wait path. Test: in QEMU, boot with `-drive` omitted (no disk attached) on a scratch config and confirm `ata_init` fails fast (check serial timestamp delta) instead of burning the full busy-wait
+- [x] #16 `stress_test()` file leak on partial failure (`kernel/src/start.c:87-93`) — add cleanup (delete any partially-created `STRESS.TXT`/`STRESSR.TXT`) on the `break` path. Test: temporarily force a mid-loop failure (e.g. stub a write call to fail) and confirm via `mdir` on the built image that no stress-test file remains afterward
+- [x] #17 Unchecked `window_create()` return value (`fm.c`, `editor.c`, `start.c` call sites) — check for `-1`/failure at each call site and log or show user feedback (e.g. reuse the dialog "ignored" pattern from #23) instead of silently no-oping. Test: in QEMU, open windows until `MAX_WINDOWS=8` is hit, then attempt "New Folder"; confirm a serial log line (or on-screen indication) reports the failure instead of doing nothing visibly
 
 **Milestone 14.2: Low findings**
-- [ ] #18 Rapid-reopen unsaved-edit loss (`fm.c` double-click handler + `editor_open()`) — don't re-arm the double-click timer on a double-click event itself (only on single clicks), so a third rapid click doesn't re-trigger `editor_open()`. Test: in QEMU, open a file in the editor, type unsaved text, triple-click the file entry rapidly in the file manager, confirm the unsaved text survives (editor is not silently reloaded)
-- [ ] #19 Inconsistent "PANIC" logging (ATA sector-0 read failure, some FAT32 boot-demo read failures) — audit all literal `"PANIC"` log call sites and ensure each either calls `hcf()` or is relabeled (e.g. `"ERROR"`) if it's meant to be recoverable. Test: `grep -n "PANIC" kernel/src/**/*.c` and manually confirm each remaining "PANIC" site halts, in QEMU where feasible
-- [ ] #20 `pmm_init` bitmap-placement ordering hazard — explicitly exclude the physical range backing Limine's `memmap->entries[]` array from the bitmap's placement search. Test: in QEMU, add a temporary serial assertion comparing the chosen bitmap physical range against the memmap array's physical range at `pmm_init` time, confirm no overlap, then remove the assertion (or keep it behind a debug flag)
-- [ ] #21 Disk image Makefile target not idempotent/versioned — add a version stamp file inside the built image (or a Makefile dependency on the seed recipe's content hash) so a changed recipe forces a rebuild instead of silently reusing a stale image. Test: change the seed recipe, run `make`, confirm the disk image target rebuilds (check file mtime/hash changes) rather than being skipped
-- [ ] #22 `fb_backbuffer_init()` re-entrancy guard — add an already-initialized check (return early or assert) if called a second time. Test: temporarily call `fb_backbuffer_init()` twice at boot in a debug build, confirm no double allocation occurs (check heap free-byte count over serial before/after), then revert the double-call
-- [ ] #23 `fm_open_dialog` "one at a time" guard gives no feedback — add a visible/logged indication (status bar text, or a brief flash) when a second dialog request is dropped. Test: in QEMU, open a dialog, click a second toolbar button that would open another dialog, confirm feedback appears (serial log at minimum, ideally on-screen)
-- [ ] #24 Double-click identity is row-index-based, not filename-based — document the `fm_refresh()` invariant with a comment at each mutation call site, or (if time allows) switch tracking to filename-based identity for robustness. Test: code review confirmation that all mutation paths call `fm_refresh()`; no QEMU test needed if left as documentation-only, since audit confirms this is not an active bug
+- [x] #18 Rapid-reopen unsaved-edit loss (`fm.c` double-click handler + `editor_open()`) — don't re-arm the double-click timer on a double-click event itself (only on single clicks), so a third rapid click doesn't re-trigger `editor_open()`. Test: in QEMU, open a file in the editor, type unsaved text, triple-click the file entry rapidly in the file manager, confirm the unsaved text survives (editor is not silently reloaded)
+- [x] #19 Inconsistent "PANIC" logging (ATA sector-0 read failure, some FAT32 boot-demo read failures) — audit all literal `"PANIC"` log call sites and ensure each either calls `hcf()` or is relabeled (e.g. `"ERROR"`) if it's meant to be recoverable. Test: `grep -n "PANIC" kernel/src/**/*.c` and manually confirm each remaining "PANIC" site halts, in QEMU where feasible
+- [x] #20 `pmm_init` bitmap-placement ordering hazard — explicitly exclude the physical range backing Limine's `memmap->entries[]` array from the bitmap's placement search. Test: in QEMU, add a temporary serial assertion comparing the chosen bitmap physical range against the memmap array's physical range at `pmm_init` time, confirm no overlap, then remove the assertion (or keep it behind a debug flag)
+- [x] #21 Disk image Makefile target not idempotent/versioned — add a version stamp file inside the built image (or a Makefile dependency on the seed recipe's content hash) so a changed recipe forces a rebuild instead of silently reusing a stale image. Test: change the seed recipe, run `make`, confirm the disk image target rebuilds (check file mtime/hash changes) rather than being skipped
+- [x] #22 `fb_backbuffer_init()` re-entrancy guard — add an already-initialized check (return early or assert) if called a second time. Test: temporarily call `fb_backbuffer_init()` twice at boot in a debug build, confirm no double allocation occurs (check heap free-byte count over serial before/after), then revert the double-call
+- [x] #23 `fm_open_dialog` "one at a time" guard gives no feedback — add a visible/logged indication (status bar text, or a brief flash) when a second dialog request is dropped. Test: in QEMU, open a dialog, click a second toolbar button that would open another dialog, confirm feedback appears (serial log at minimum, ideally on-screen)
+- [x] #24 Double-click identity is row-index-based, not filename-based — document the `fm_refresh()` invariant with a comment at each mutation call site, or (if time allows) switch tracking to filename-based identity for robustness. Test: code review confirmation that all mutation paths call `fm_refresh()`; no QEMU test needed if left as documentation-only, since audit confirms this is not an active bug
 
-**Phase 14 exit criterion:** all 12 Medium+Low findings closed or explicitly documented, README.md updated, Track A complete.
+**Phase 14 exit criterion:** ✅ all 12 Medium+Low findings closed or explicitly documented (see [phase14.md](phase14.md), including a documented mid-phase incident and recovery for #21's testing), README.md updated to reflect the audit-remediated state. **Track A complete.**
 
 ---
 
@@ -231,20 +231,20 @@ Assuming the same ~7.5 hrs/week pace as the v1 plan:
 | 13 | 13.6 Stale-window dispatch | Clear window state fully on close | Done | |
 | 13 | 13.6 Stale-window dispatch | Re-check `in_use` in dispatch loop | Done | |
 | 13 | 13.6 Stale-window dispatch | QEMU test: overlapping-button close scenario | Done | Pre-fix: both callbacks fired via real simulated mouse click |
-| 14 | 14.0 README update | Update README (post-Track-A pass) | Not Started | |
-| 14 | 14.1 Medium fixes | #12 Demo windows auto-close | Not Started | |
-| 14 | 14.1 Medium fixes | #13 0xE0 extended scancode handling | Not Started | |
-| 14 | 14.1 Medium fixes | #14 Spurious IRQ7/15 EOI handling | Not Started | |
-| 14 | 14.1 Medium fixes | #15 ATA drive-presence probe | Not Started | |
-| 14 | 14.1 Medium fixes | #16 stress_test file-leak cleanup | Not Started | |
-| 14 | 14.1 Medium fixes | #17 Check window_create() return value | Not Started | |
-| 14 | 14.2 Low fixes | #18 Fix rapid-reopen unsaved-edit loss | Not Started | |
-| 14 | 14.2 Low fixes | #19 Consistent PANIC logging | Not Started | |
-| 14 | 14.2 Low fixes | #20 pmm_init bitmap-placement guard | Not Started | |
-| 14 | 14.2 Low fixes | #21 Idempotent disk image Makefile target | Not Started | |
-| 14 | 14.2 Low fixes | #22 fb_backbuffer_init re-entrancy guard | Not Started | |
-| 14 | 14.2 Low fixes | #23 Dialog guard feedback | Not Started | |
-| 14 | 14.2 Low fixes | #24 Document/harden double-click identity | Not Started | |
+| 14 | 14.0 README update | Update README (post-Track-A pass) | Done | Track B re-touch still pending |
+| 14 | 14.1 Medium fixes | #12 Demo windows auto-close | Done | Closed before compositor draws first frame; see [phase14.md](phase14.md) |
+| 14 | 14.1 Medium fixes | #13 0xE0 extended scancode handling | Done | Right Ctrl / Numpad Enter now distinguishable |
+| 14 | 14.1 Medium fixes | #14 Spurious IRQ7/15 EOI handling | Done | Verified via synthetic pic_send_eoi(7)/(15) calls |
+| 14 | 14.1 Medium fixes | #15 ATA drive-presence probe | Done | Pre-fix: 100,001 status reads; post-fix: 0 |
+| 14 | 14.1 Medium fixes | #16 stress_test file-leak cleanup | Done | Cross-checked via mtools, no leaked file |
+| 14 | 14.1 Medium fixes | #17 Check window_create() return value | Done | New taskbar_flash_message() mechanism, reused by #23 |
+| 14 | 14.2 Low fixes | #18 Fix rapid-reopen unsaved-edit loss | Done | Live-verified: marker text survives rapid triple-click |
+| 14 | 14.2 Low fixes | #19 Consistent PANIC logging | Done | 4 non-halting sites relabeled to ERROR |
+| 14 | 14.2 Low fixes | #20 pmm_init bitmap-placement guard | Done | Permanent exclusion check + serial log every boot |
+| 14 | 14.2 Low fixes | #21 Idempotent disk image Makefile target | Done | See [phase14.md](phase14.md) for a documented mid-test incident + recovery |
+| 14 | 14.2 Low fixes | #22 fb_backbuffer_init re-entrancy guard | Done | PMM free-page count unchanged across repeat call |
+| 14 | 14.2 Low fixes | #23 Dialog guard feedback | Done | Reuses #17's taskbar_flash_message() |
+| 14 | 14.2 Low fixes | #24 Document/harden double-click identity | Done | Documentation-only, per audit's own latent-not-active assessment |
 | 15 | 15.1 Cursor | Design + render arrow cursor | Not Started | |
 | 15 | 15.2 Wallpaper | Solid/gradient wallpaper layer | Not Started | |
 | 15 | 15.3 Wallpaper (stretch) | BMP/raw loader + bundled image | Not Started | |

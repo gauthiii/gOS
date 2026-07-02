@@ -1,6 +1,7 @@
 #include <keyboard.h>
 #include <idt.h>
 #include <pic.h>
+#include <serial.h>
 
 #define PS2_DATA_PORT 0x60
 
@@ -15,6 +16,7 @@
 #define SC_LEFT_CTRL_BREAK  0x9D
 #define SC_S_SCANCODE       0x1F
 #define SC_BREAK_BIT        0x80
+#define SC_EXTENDED_PREFIX  0xE0
 
 /* Ctrl+S is reported to callers as ASCII DC3 (0x13) - the conventional
  * "device control 3 / XOFF" control code historically used for Ctrl+S in
@@ -48,6 +50,8 @@ static const char scancode_ascii_shift[128] = {
 static volatile int shift_held = 0;
 static volatile int caps_lock_on = 0;
 static volatile int ctrl_held = 0;
+static volatile int right_ctrl_held = 0;
+static volatile int pending_extended = 0;
 
 #define RING_BUFFER_SIZE 256
 static volatile char ring_buffer[RING_BUFFER_SIZE];
@@ -81,19 +85,53 @@ static void keyboard_irq_handler(struct interrupt_frame *frame) {
     (void)frame;
     uint8_t sc = inb(PS2_DATA_PORT);
 
+    if (sc == SC_EXTENDED_PREFIX) {
+        /* 0xE0 prefixes a two-byte extended scancode (Right Ctrl/Alt,
+         * Numpad Enter, arrow keys, etc.) - remember that for the very
+         * next byte, then wait for it. Without this, the prefix byte
+         * itself is silently dropped (>=128, out of the ASCII table
+         * range) but the FOLLOWING byte is processed as an ordinary
+         * scancode: Right Ctrl's second byte (0x1D) happens to numerically
+         * match Left Ctrl's own make code, and Numpad Enter's second byte
+         * (0x1C) happens to match plain Enter's - so both "accidentally"
+         * produced correct-looking output before this fix, but with no
+         * way to actually tell them apart (finding #13). */
+        pending_extended = 1;
+        pic_send_eoi(1);
+        return;
+    }
+    int is_extended = pending_extended;
+    pending_extended = 0;
+
     if (sc == SC_LEFT_SHIFT_MAKE || sc == SC_RIGHT_SHIFT_MAKE) {
         shift_held = 1;
     } else if (sc == SC_LEFT_SHIFT_BREAK || sc == SC_RIGHT_SHIFT_BREAK) {
         shift_held = 0;
+    } else if (sc == SC_LEFT_CTRL_MAKE && is_extended) {
+        /* Right Ctrl (0xE0 0x1D) - tracked separately from Left Ctrl so
+         * the two are genuinely distinguishable, not just coincidentally
+         * both landing on ctrl_held via the same byte value. */
+        right_ctrl_held = 1;
+        serial_write_string("Keyboard: Right Ctrl pressed (extended)\n");
+    } else if (sc == SC_LEFT_CTRL_BREAK && is_extended) {
+        right_ctrl_held = 0;
+        serial_write_string("Keyboard: Right Ctrl released (extended)\n");
     } else if (sc == SC_LEFT_CTRL_MAKE) {
         ctrl_held = 1;
     } else if (sc == SC_LEFT_CTRL_BREAK) {
         ctrl_held = 0;
     } else if (sc == SC_CAPS_LOCK_MAKE) {
         caps_lock_on = !caps_lock_on;
+    } else if (sc == SC_ENTER_MAKE && is_extended) {
+        /* Numpad Enter (0xE0 0x1C) - functionally still produces '\n'
+         * like plain Enter, but now explicitly recognized as the
+         * extended/numpad variant rather than an accidental byte-value
+         * coincidence. */
+        serial_write_string("Keyboard: Numpad Enter pressed (extended)\n");
+        ring_push('\n');
     } else if (!(sc & SC_BREAK_BIT)) {
         /* Make code (key press) for a non-modifier key. */
-        if (sc == SC_S_SCANCODE && ctrl_held) {
+        if (sc == SC_S_SCANCODE && (ctrl_held || right_ctrl_held)) {
             ring_push((char)KEY_CTRL_S);
         } else if (sc < 128) {
             int use_shift = shift_held;

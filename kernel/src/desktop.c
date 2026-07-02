@@ -5,6 +5,7 @@
 #include <mouse.h>
 #include <fm.h>
 #include <serial.h>
+#include <taskbar.h>
 
 #define ICON_X 20
 #define ICON_Y 20
@@ -64,5 +65,14 @@ void desktop_update(void) {
     } else {
         serial_write_string("Desktop: Files icon clicked - launching File Manager\n");
         fm_win_index = fm_create_window(120, 60, 420, 260);
+        if (fm_win_index == -1) {
+            /* Finding #17: fm_create_window() already guards its own
+             * internal window_create() call, but this caller never
+             * checked the result - hitting MAX_WINDOWS=8 here produced
+             * no dialog, no window, and no error, the app just appeared
+             * to do nothing. */
+            serial_write_string("Desktop: fm_create_window() failed (MAX_WINDOWS exhausted)\n");
+            taskbar_flash_message("Could not open File Manager - too many windows open");
+        }
     }
 }

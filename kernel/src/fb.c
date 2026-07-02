@@ -109,6 +109,15 @@ void fb_draw_line(int64_t x0, int64_t y0, int64_t x1, int64_t y1, uint32_t color
 }
 
 void fb_backbuffer_init(void) {
+    if (back_buffer) {
+        /* Finding #22: fine today since this is called exactly once at
+         * boot, but a second call would otherwise leak a multi-MB
+         * allocation (the old back_buffer pointer gets silently
+         * overwritten with no kfree()) and pointlessly re-zero a buffer
+         * already in active use as draw_target. */
+        serial_write_string("FB: fb_backbuffer_init() called again - already initialized, ignoring\n");
+        return;
+    }
     uint64_t size = fb_pitch * fb_h;
     back_buffer = (uint8_t *)kmalloc(size);
     if (!back_buffer) {

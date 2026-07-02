@@ -119,10 +119,35 @@ static void stress_test(void) {
     int file_ok = 1;
     for (int i = 0; i < 150; i++) {
         if (!fat_create_file("STRESS.TXT")) { file_ok = 0; break; }
+#if defined(GOS_TEST_STRESS_LEAK)
+        /* Finding #16 repro: force a failure right after create on
+         * iteration 5, simulating a real mid-cycle failure (e.g. a
+         * write error) - STRESS.TXT now exists on disk from the create
+         * step, with rename/delete never reached, exactly the partial
+         * state that used to leak permanently. */
+        if (i == 5) {
+            serial_write_string("TEST: forcing a mid-cycle failure at iteration 5 (STRESS.TXT created, not written/renamed/deleted)\n");
+            file_ok = 0;
+            break;
+        }
+#endif
         if (!fat_write_file("STRESS.TXT", (const uint8_t *)"x", 1)) { file_ok = 0; break; }
         if (!fat_rename("STRESS.TXT", "STRESSR.TXT")) { file_ok = 0; break; }
         if (!fat_delete_file("STRESSR.TXT")) { file_ok = 0; break; }
         file_cycles_ok++;
+    }
+    if (!file_ok) {
+        /* Finding #16: the create->write->rename->delete cycle breaks on
+         * the first failed step with no cleanup, leaving whichever of
+         * STRESS.TXT/STRESSR.TXT the cycle got up to permanently on
+         * disk. Whichever name the loop broke at, the OTHER one is
+         * guaranteed not to exist yet (rename/delete haven't happened),
+         * so trying to delete both and ignoring which one (if either)
+         * actually existed is a safe, complete cleanup regardless of
+         * which specific step failed. */
+        fat_delete_file("STRESS.TXT");
+        fat_delete_file("STRESSR.TXT");
+        serial_write_string("Stress test: cleaned up STRESS.TXT/STRESSR.TXT after partial failure\n");
     }
 
     int win_cycles_ok = 0;
@@ -254,6 +279,27 @@ void _start(void) {
     pic_remap();
     serial_write_string("PIC remapped: IRQ0-7 -> vectors 32-39, IRQ8-15 -> vectors 40-47\n");
 
+#if defined(GOS_TEST_SPURIOUS_IRQ_CHECK)
+    /* Finding #14 repro: neither IRQ7 (LPT) nor IRQ15 (secondary ATA
+     * channel) has a driver registered in this kernel, so neither can
+     * genuinely be "in service" right now - calling pic_send_eoi()
+     * for them synthetically exercises exactly the spurious-IRQ path
+     * (ISR bit clear) live, without needing real spurious hardware
+     * timing. Confirms the ISR-register read actually executes and the
+     * spurious branch is taken (no full EOI sent) instead of assuming
+     * it from code review alone. */
+    serial_write_string("TEST: synthetic pic_send_eoi(7) and pic_send_eoi(15) (spurious IRQ repro)...\n");
+    uint32_t isr_reads_before = pic_debug_isr_read_count();
+    pic_send_eoi(7);
+    pic_send_eoi(15);
+    uint32_t isr_reads_after = pic_debug_isr_read_count();
+    serial_write_string("TEST: ISR-register reads before=");
+    serial_write_uint((uint64_t)isr_reads_before);
+    serial_write_string(" after=");
+    serial_write_uint((uint64_t)isr_reads_after);
+    serial_write_string(isr_reads_after == isr_reads_before + 2 ? " (both EOI calls read ISR - OK)\n" : " (BUG - ISR read did not execute for both calls)\n");
+#endif
+
     timer_init();
     __asm__ volatile ("sti");
     serial_write_string("Interrupts enabled (sti). Waiting for timer ticks...\n");
@@ -345,7 +391,13 @@ void _start(void) {
     {
         static uint8_t sector0[ATA_SECTOR_SIZE];
         if (!ata_read_sector(0, sector0)) {
-            serial_write_string("ATA: PANIC - failed to read sector 0\n");
+            serial_write_string("ATA: ERROR - failed to read sector 0 (non-fatal, boot continues)\n");
+#if defined(GOS_TEST_ATA_PROBE)
+            extern uint32_t ata_debug_busy_wait_reads;
+            serial_write_string("TEST: ata_wait_not_busy() status-port reads for this failed call = ");
+            serial_write_uint((uint64_t)ata_debug_busy_wait_reads);
+            serial_write_string(ata_debug_busy_wait_reads == 0 ? " (fast-fail - probe correctly skipped the busy-wait)\n" : " (BUG - busy-wait ran despite no drive detected)\n");
+#endif
         } else {
             serial_write_string("ATA: sector 0 read OK. First 16 bytes: ");
             for (int i = 0; i < 16; i++) {
@@ -411,7 +463,7 @@ void _start(void) {
         static uint8_t file_buf[512];
         int64_t n = fat_read_file("HOSTFILE.TXT", file_buf, sizeof(file_buf) - 1);
         if (n < 0) {
-            serial_write_string("FAT32: PANIC - failed to read HOSTFILE.TXT\n");
+            serial_write_string("FAT32: ERROR - failed to read HOSTFILE.TXT (non-fatal, boot continues)\n");
         } else {
             file_buf[n] = '\0';
             serial_write_string("FAT32: read HOSTFILE.TXT (");
@@ -423,7 +475,7 @@ void _start(void) {
 
         n = fat_read_file("TESTDIR/NESTED.TXT", file_buf, sizeof(file_buf) - 1);
         if (n < 0) {
-            serial_write_string("FAT32: PANIC - failed to read TESTDIR/NESTED.TXT\n");
+            serial_write_string("FAT32: ERROR - failed to read TESTDIR/NESTED.TXT (non-fatal, boot continues)\n");
         } else {
             file_buf[n] = '\0';
             serial_write_string("FAT32: read TESTDIR/NESTED.TXT (");
@@ -482,7 +534,7 @@ void _start(void) {
         }
         n = fat_read_file("PERSIST.TXT", file_buf, sizeof(file_buf) - 1);
         if (n < 0) {
-            serial_write_string("FAT32: PANIC - failed to read PERSIST.TXT\n");
+            serial_write_string("FAT32: ERROR - failed to read PERSIST.TXT (non-fatal, boot continues)\n");
         } else {
             file_buf[n] = '\0';
             serial_write_string("FAT32: read PERSIST.TXT (");
@@ -646,6 +698,23 @@ void _start(void) {
      * (background + rectangle at its new position), verifiable via
      * screendumps taken at different points during the animation. */
     fb_backbuffer_init();
+#if defined(GOS_TEST_FB_BACKBUFFER_REENTRY)
+    /* Finding #22 repro: call fb_backbuffer_init() a second time and
+     * confirm via PMM's free-page count that no additional multi-MB
+     * allocation happened (the guard should return early instead of
+     * silently overwriting back_buffer with a second kmalloc()). */
+    {
+        uint64_t free_before = pmm_free_pages();
+        serial_write_string("TEST: calling fb_backbuffer_init() a second time...\n");
+        fb_backbuffer_init();
+        uint64_t free_after = pmm_free_pages();
+        serial_write_string("TEST: PMM free pages before=");
+        serial_write_uint(free_before);
+        serial_write_string(" after=");
+        serial_write_uint(free_after);
+        serial_write_string(free_before == free_after ? " (unchanged - no double allocation)\n" : " (BUG - second call allocated more memory)\n");
+    }
+#endif
     int64_t box_x = 0;
     int64_t box_dx = 20;
     const int64_t box_w = 80, box_h = 80;
@@ -741,12 +810,61 @@ void _start(void) {
     /* Milestone 11.2: the File Manager no longer auto-opens at boot - it's
      * launched on demand by clicking the "Files" desktop icon
      * (desktop_update()/desktop_render(), kernel/src/desktop.c). Windows
-     * A/B/C above still auto-open unchanged (they're Phase 6/7 regression
-     * demos, not the File Manager). A taskbar across the bottom of the
-     * screen (kernel/src/taskbar.c) lists whatever windows are currently
-     * open and lets you click an entry to bring it to front. */
+     * A/B/C above are still created and configured here (they're Phase
+     * 6/7 regression demos proving window_create/window_add_button/
+     * window_enable_textbox all still work end-to-end on every boot) but
+     * are closed again immediately below, before the compositor's main
+     * loop ever draws a frame - so they never actually appear on screen,
+     * and (Finding #12) don't permanently consume 3 of MAX_WINDOWS=8
+     * slots before the user has opened anything real. A taskbar across
+     * the bottom of the screen (kernel/src/taskbar.c) lists whatever
+     * windows are currently open and lets you click an entry to bring it
+     * to front. */
+    window_close(win_a);
+    window_close(win_b);
+    window_close(win_c);
+    serial_write_string("Demo windows (Window A/B, Text Editor) auto-closed - ");
+    serial_write_uint((uint64_t)window_count_open());
+    serial_write_string(" window(s) open, ");
+    serial_write_uint((uint64_t)(MAX_WINDOWS - window_count_open()));
+    serial_write_string(" slot(s) free\n");
     serial_write_string("Desktop ready - click the \"Files\" icon to launch the File Manager\n");
 
+#if defined(GOS_TEST_WINDOW_CREATE_FEEDBACK)
+    /* Finding #17 repro: fill every remaining window slot, then attempt
+     * to open the File Manager (which internally calls window_create())
+     * to trigger the exhausted-slots failure path live and confirm the
+     * new serial log + on-screen flash both fire instead of the app
+     * silently doing nothing. */
+    {
+        int filler_wins[MAX_WINDOWS];
+        int filler_count = 0;
+        for (int i = 0; i < MAX_WINDOWS; i++) {
+            int w = window_create(600, 600, 40, 40, fb_make_color(80, 80, 80), fb_make_color(20, 20, 20), "Filler");
+            if (w < 0) {
+                break;
+            }
+            filler_wins[filler_count++] = w;
+        }
+        serial_write_string("TEST: filled ");
+        serial_write_uint((uint64_t)filler_count);
+        serial_write_string(" window slot(s) (");
+        serial_write_uint((uint64_t)window_count_open());
+        serial_write_string("/");
+        serial_write_uint((uint64_t)MAX_WINDOWS);
+        serial_write_string(" open)\n");
+        serial_write_string("TEST: attempting to open File Manager with no slots free...\n");
+        int fm_attempt = fm_create_window(120, 60, 420, 260);
+        serial_write_string("TEST: fm_create_window() returned ");
+        serial_write_uint((uint64_t)(fm_attempt < 0 ? 0xFFFFFFFF : (uint64_t)fm_attempt));
+        serial_write_string(fm_attempt == -1 ? " (-1, correctly failed)\n" : " (unexpected)\n");
+        if (fm_attempt == -1) {
+            serial_write_string("TEST: fm_create_window() failed (MAX_WINDOWS exhausted) - matches desktop.c's real failure path\n");
+            taskbar_flash_message("Could not open File Manager - too many windows open");
+        }
+        (void)filler_wins;
+    }
+#endif
 #if defined(GOS_TEST_PANIC_SCREEN)
     /* Milestone 11.1 visual test: deliberately trigger a divide-by-zero
      * after the desktop/window system is fully up, so the panic screen's

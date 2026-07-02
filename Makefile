@@ -67,14 +67,36 @@ iso: build
 # `make run` calls once it exists, since Phase 8.3's persistence tests
 # specifically depend on data surviving across reboots/rebuilds. Delete it
 # manually (rm $(DISK_IMG)) to force a fresh, empty filesystem.
-disk: $(DISK_IMG)
+#
+# Finding #21: the seed recipe below (size + mformat args) previously had
+# no versioning - if it ever changed, an existing checkout would silently
+# keep using a stale image built with the OLD recipe, with no warning.
+# DISK_RECIPE_HASH is computed from the recipe text itself, so editing
+# DISK_RECIPE below automatically changes the hash; check-disk-recipe
+# compares it against the hash stored from the last successful build and
+# deletes the stale image (forcing $(DISK_IMG)'s own rule to rebuild it)
+# if they differ - a normal, unrelated `make`/`make run` with an
+# unchanged recipe still leaves an existing image (and its data) alone.
+DISK_RECIPE := truncate -s 64M $(DISK_IMG) && mformat -F -i $(DISK_IMG) -v GOSDISK ::
+DISK_RECIPE_HASH := $(shell echo "$(DISK_RECIPE)" | shasum -a 256 | cut -d' ' -f1)
+DISK_HASH_FILE := disk_images/.disk_recipe_hash
+
+disk: check-disk-recipe $(DISK_IMG)
+
+.PHONY: check-disk-recipe
+check-disk-recipe:
+	@mkdir -p disk_images
+	@if [ ! -f $(DISK_HASH_FILE) ] || [ "$$(cat $(DISK_HASH_FILE) 2>/dev/null)" != "$(DISK_RECIPE_HASH)" ]; then \
+		echo "Disk image seed recipe changed (or first run) - forcing rebuild of $(DISK_IMG)"; \
+		echo "$(DISK_RECIPE_HASH)" > $(DISK_HASH_FILE); \
+		rm -f $(DISK_IMG); \
+	fi
 
 $(DISK_IMG):
 	@mkdir -p disk_images
-	truncate -s 64M $(DISK_IMG)
-	mformat -F -i $(DISK_IMG) -v GOSDISK ::
+	$(DISK_RECIPE)
 
-run: iso disk
+run: iso disk $(BUILD_DIR)/OVMF_VARS.fd
 	qemu-system-x86_64 \
 		-M q35 -m 256M \
 		-drive if=pflash,format=raw,unit=0,file=$(OVMF_DIR)/OVMF_CODE.fd,readonly=on \

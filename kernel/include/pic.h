@@ -8,4 +8,8 @@ void pic_send_eoi(uint8_t irq);
 void pic_set_mask(uint8_t irq);
 void pic_clear_mask(uint8_t irq);
 
+#if defined(GOS_TEST_SPURIOUS_IRQ_CHECK)
+uint32_t pic_debug_isr_read_count(void);
+#endif
+
 #endif

@@ -4,9 +4,16 @@ A hobby x86_64 operating system, built completely from scratch: no existing kern
 
 gOS boots via [Limine](https://github.com/limine-bootloader/limine) into a desktop with a background, a taskbar, and a "Files" launcher icon; draws directly to a framebuffer; runs its own windowing system with draggable/overlappable/closable windows; renders its own bitmap-font text; reads and writes a real FAT32 disk image through a hand-written ATA PIO driver; and has a graphical File Manager with full CRUD — create folders/files, open and edit text files, save with Ctrl+S, delete, and rename — all backed by the real filesystem, not a mock. Unhandled CPU exceptions show a red kernel panic screen instead of silently hanging.
 
-Development is tracked as a sequence of phases in [PROJECT_PLAN.md](version1/PROJECT_PLAN.md); each completed phase has its own detailed write-up (`phase0.md` through `phase11.md`) with what was built, how it was tested, and any bugs found along the way. Past v1.0, [phase-patch.md](version1/phase-patch.md) documents a follow-up patch (a real hang fix plus unlabeled-button UX fix), and [audit.md](version1/audit.md) is a standalone, read-only flaw audit of the whole kernel.
+Development is tracked as a sequence of phases. v1.0 (Phases 0–11) is documented in [version1/PROJECT_PLAN.md](version1/PROJECT_PLAN.md), each with its own detailed write-up (`version1/phase0.md` through `version1/phase11.md`). Past v1.0, [version1/phase-patch.md](version1/phase-patch.md) documents a follow-up patch (a real hang fix plus unlabeled-button UX fix), and [version1/audit.md](version1/audit.md) is a standalone, read-only flaw audit of the whole v1.0 kernel (24 ranked findings). [project-plan-2.md](project-plan-2.md) is the current v2 plan: **Track A** (fixing every audit finding) followed by **Track B** (new features) — see [phase12.md](phase12.md), [phase13.md](phase13.md), and [phase14.md](phase14.md) for Track A's three phases.
 
-**Status: v1.0 — all 12 phases (0–11) complete, plus one post-v1.0 patch.** Toolchain → bootloader → interrupts → memory management → drivers → graphics → windowing → fonts/text input → FAT32 filesystem → file manager UI → CRUD operations → polish/stability. This is the plan's own described v1 finish line — see [PROJECT_PLAN.md](version1/PROJECT_PLAN.md) for the full roadmap and `git tag` for the `v1.0` marker. A desktop-hang bug (the main loop halting after ~25 seconds of real interactive use) and unlabeled buttons were found and fixed after tagging — see [phase-patch.md](version1/phase-patch.md).
+**Status: v1.0 complete, plus post-v1.0 patch, plus Track A (all 24 audit findings fixed).** Toolchain → bootloader → interrupts → memory management → drivers → graphics → windowing → fonts/text input → FAT32 filesystem → file manager UI → CRUD operations → polish/stability (v1.0) → 5 Critical + 6 High + 12 Medium/Low audit fixes (Track A, Phases 12–14). Track B (new features: cursor/wallpaper, window minimize/close, taskbar) has not started yet — see [project-plan-2.md](project-plan-2.md)'s priority rule (Track A blocks Track B) and status tracker.
+
+### Known limitations
+
+- **v1.0 scope boundaries** (still true post-Track-A): no networking, no multi-core/SMP, no sound, no USB beyond QEMU's emulated PS/2, no real package manager, no POSIX compatibility, no multi-user/permissions, no JIT/scripting layer, no fine-grained W^X page permissions (kernel mapped uniformly RWX), no window resizing/minimize/maximize.
+- **Track B not started**: no real arrow-shaped mouse cursor yet (a small placeholder square), no desktop wallpaper beyond a solid gradient pattern, no window minimize, no window maximize/restore.
+- **Environment-specific hardware assumptions carried from v1.0**: single ATA drive on the primary master IDE channel (no secondary channel, no AHCI/NVMe), legacy 8259 PIC only (no APIC/x2APIC), PS/2 keyboard/mouse only.
+- **Known-safe-by-convention, not by construction**: `fm.c`'s double-click file identity is tracked by row index, not filename — safe today only because every listing-mutating code path calls `fm_refresh()` first (see Finding #24 in [phase14.md](phase14.md)); documented as an explicit invariant rather than hardened against.
 
 ---
 
@@ -25,6 +32,7 @@ Development is tracked as a sequence of phases in [PROJECT_PLAN.md](version1/PRO
 - A **desktop**: wallpaper background, a "Files" launcher icon (the File Manager no longer auto-opens — click to launch it), a **taskbar** listing every open window with click-to-focus, and a close ("X") button on every window
 - A red full-screen **kernel panic display** on any unhandled CPU exception (vector, error code, RIP, and CR2 for page faults), instead of a silent hang
 - An automated boot-time **stress test** (150 file create/write/rename/delete cycles + 300 window create/close cycles) proving the system survives rapid churn without crashing
+- **Post-v1.0 audit remediation (Track A, Phases 12–14):** a dedicated IST stack for double-fault/NMI so a stack overflow shows the panic screen instead of a triple-fault reset; FAT32 chain-walk cycle detection so a corrupted disk can't hang the kernel; `kfree()` double-free detection; `vmm_unmap_page()` with proper TLB invalidation; an ATA drive-presence probe so a missing disk fails fast instead of burning a ~100,000-iteration busy-wait; window drag coordinates clamped to the screen edge; every `window_create()` call site checked, with a new on-screen flash-message mechanism surfacing failures the user would otherwise never see; and 15 further correctness/robustness fixes — see [phase12.md](phase12.md), [phase13.md](phase13.md), [phase14.md](phase14.md) for the full list, each with a live before/after QEMU reproduction of the original bug
 
 ---
 
@@ -253,6 +261,9 @@ disk_images/         FAT32 test disk image(s) (gitignored, created by `make disk
 build/               compiled kernel + ISO (gitignored)
 screenshots/         milestone screenshots (including phase11_demo.gif) referenced above and in the phase docs
 project-plan-2.md    v2 project plan: audit remediation (Track A) + new features (Track B)
+phase12.md           Track A, Phase 1: 5 Critical audit fixes
+phase13.md           Track A, Phase 2: 6 High-severity audit fixes
+phase14.md           Track A, Phase 3: 12 Medium/Low audit fixes (Track A now complete)
 version1/            all v1.0 planning/completion docs, moved here after v2 planning began
   PROJECT_PLAN.md     the full phase-by-phase roadmap and status tracker
   phase0.md ... phase11.md   detailed completion report for each finished phase
@@ -264,8 +275,9 @@ version1/            all v1.0 planning/completion docs, moved here after v2 plan
 
 ## Further reading
 
-- [project-plan-2.md](project-plan-2.md) — the current v2 plan: audit remediation (Track A) followed by new features (Track B)
+- [project-plan-2.md](project-plan-2.md) — the current v2 plan: audit remediation (Track A) followed by new features (Track B), with a full status tracker
+- [phase12.md](phase12.md), [phase13.md](phase13.md), [phase14.md](phase14.md) — Track A's three phases: every one of the 24 audit findings, each with the fix, a live QEMU reproduction of the original bug (before/after), and exact commands to reproduce every test
 - [version1/PROJECT_PLAN.md](version1/PROJECT_PLAN.md) — full v1.0 project scope, phase breakdown, dependency graph, and status tracker
-- `version1/phase0.md` through `version1/phase11.md` — one detailed write-up per completed phase: what was built, exact commands to reproduce every test, and any real bugs found (with symptom/diagnosis/fix)
+- `version1/phase0.md` through `version1/phase11.md` — one detailed write-up per completed v1.0 phase: what was built, exact commands to reproduce every test, and any real bugs found (with symptom/diagnosis/fix)
 - [version1/phase-patch.md](version1/phase-patch.md) — the post-v1.0 patch: diagnosis and fix for a real desktop-hang bug, plus the unlabeled-button UX fix
-- [version1/audit.md](version1/audit.md) — a read-only, no-changes-made audit of the whole kernel; useful as a punch list for anyone picking this project back up
+- [version1/audit.md](version1/audit.md) — the original read-only, no-changes-made audit of the v1.0 kernel that Track A (Phases 12–14) fully remediates; useful as historical context for *why* each Track A fix exists

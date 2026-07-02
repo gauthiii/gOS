@@ -5,6 +5,7 @@
 #include <serial.h>
 #include <timer.h>
 #include <editor.h>
+#include <taskbar.h>
 
 #define FM_TOOLBAR_HEIGHT 30
 #define FM_PATH_HEIGHT    14
@@ -27,6 +28,17 @@ static int fm_visible_index[FAT32_MAX_DIRENTS];
 static int fm_visible_count = 0;
 static int fm_selected = -1; /* index into fm_visible_index, or -1 */
 
+/* Finding #24 (documentation-only, per audit's own assessment that this
+ * is latent, not an active bug): double-click identity here is tracked
+ * by ROW INDEX, not filename. This is only safe because fm_refresh()
+ * (below) unconditionally resets fm_last_click_row to -1 on every
+ * mutation (create/delete/rename/navigate) before the listing could
+ * possibly change under a user's fingers. If a future code path ever
+ * mutates fm_raw_entries/fm_visible_index WITHOUT going through
+ * fm_refresh() first, a stale row index could silently identify the
+ * wrong file for a double-click. Switching to filename-based tracking
+ * would remove this invariant entirely, but isn't required while every
+ * mutation path continues to call fm_refresh(). */
 static int fm_last_click_row = -1;
 static uint64_t fm_last_click_tick = 0;
 
@@ -249,6 +261,13 @@ static void fm_dialog_confirm_click(void) {
 
 static void fm_open_dialog(enum fm_dialog_mode mode, const char *prompt, const char *prefill) {
     if (fm_dialog_win != -1) {
+        /* Finding #23: this guard is correct (a second dialog request
+         * while one's already open must be dropped, not stacked), but
+         * previously gave no feedback at all - clicking a second toolbar
+         * button did nothing visible, with no way to tell "ignored" from
+         * "broken." */
+        serial_write_string("FM: fm_open_dialog() ignored - a dialog is already open\n");
+        taskbar_flash_message("A dialog is already open - close it first");
         return; /* one dialog at a time */
     }
     struct window *fm_win = window_get(fm_win_index);
@@ -257,6 +276,14 @@ static void fm_open_dialog(enum fm_dialog_mode mode, const char *prompt, const c
 
     fm_dialog_win = window_create(dx, dy, 300, 110, fb_make_color(150, 130, 60),
                                    fb_make_color(45, 40, 25), "Prompt");
+    if (fm_dialog_win == -1) {
+        /* Finding #17: same silent-no-op class as the File Manager and
+         * editor launch sites - hitting MAX_WINDOWS=8 while opening a
+         * dialog produced no visible feedback at all. */
+        serial_write_string("FM: fm_open_dialog window_create() failed (MAX_WINDOWS exhausted)\n");
+        taskbar_flash_message("Could not open dialog - too many windows open");
+        return;
+    }
     window_enable_textbox(fm_dialog_win);
     window_add_button(fm_dialog_win, 10, 60, 100, 26, fb_make_color(100, 170, 100), "OK", fm_dialog_confirm_click);
     window_add_button(fm_dialog_win, 130, 60, 100, 26, fb_make_color(190, 90, 90), "Cancel", fm_dialog_cancel_click);
@@ -356,10 +383,16 @@ static void fm_click(struct window *win, int64_t local_x, int64_t local_y) {
     uint64_t now = timer_get_ticks();
     int is_double_click = (row == fm_last_click_row) &&
                            (now - fm_last_click_tick) < FM_DOUBLE_CLICK_TICKS;
-    fm_last_click_row = row;
-    fm_last_click_tick = now;
 
     if (is_double_click) {
+        /* Finding #18: only re-arm the double-click timer on a SINGLE
+         * click, not on the double-click event itself. The double-click
+         * state is invalidated here (row set to -1, an impossible row)
+         * instead of updated to "now" - otherwise a third rapid click
+         * would still be within the window of the second click's
+         * timestamp and re-trigger editor_open(), silently reloading
+         * from disk and discarding any unsaved edits typed in between. */
+        fm_last_click_row = -1;
         char path[300];
         fm_full_path(e->name, path, sizeof(path));
         serial_write_string("FM: double-click-to-open file \"");
@@ -367,6 +400,8 @@ static void fm_click(struct window *win, int64_t local_x, int64_t local_y) {
         serial_write_string("\"\n");
         editor_open(path);
     } else {
+        fm_last_click_row = row;
+        fm_last_click_tick = now;
         fm_selected = row;
         serial_write_string("FM: selected file \"");
         serial_write_string(e->name);
