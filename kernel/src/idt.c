@@ -134,13 +134,19 @@ void isr_handler(struct interrupt_frame *frame) {
 void idt_init(void) {
     idt_set_gate(0, isr0, 0, 0x8E);
     idt_set_gate(1, isr1, 0, 0x8E);
-    idt_set_gate(2, isr2, 0, 0x8E);
+    /* Vector 2 (NMI) and vector 8 (Double Fault) use IST1 - a dedicated
+     * stack (set up in gdt_init()'s TSS) instead of the current stack.
+     * A stack-overflow-triggered double fault must not run its handler
+     * on the same already-overflowed stack, or the handler's own prologue
+     * would immediately fault again -> triple fault / CPU reset instead
+     * of the panic screen ever running. */
+    idt_set_gate(2, isr2, 1, 0x8E);
     idt_set_gate(3, isr3, 0, 0x8E);
     idt_set_gate(4, isr4, 0, 0x8E);
     idt_set_gate(5, isr5, 0, 0x8E);
     idt_set_gate(6, isr6, 0, 0x8E);
     idt_set_gate(7, isr7, 0, 0x8E);
-    idt_set_gate(8, isr8, 0, 0x8E);
+    idt_set_gate(8, isr8, 1, 0x8E);
     idt_set_gate(9, isr9, 0, 0x8E);
     idt_set_gate(10, isr10, 0, 0x8E);
     idt_set_gate(11, isr11, 0, 0x8E);
@@ -186,4 +192,12 @@ void idt_init(void) {
     idtp.base = (uint64_t)&idt;
 
     idt_load((uint64_t)&idtp);
+
+#if defined(GOS_TEST_STACK_OVERFLOW)
+    serial_write_string("DEBUG: idt[8].ist=");
+    serial_write_uint(idt[8].ist);
+    serial_write_string(" idt[2].ist=");
+    serial_write_uint(idt[2].ist);
+    serial_write_string("\n");
+#endif
 }

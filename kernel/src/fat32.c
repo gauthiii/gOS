@@ -135,6 +135,20 @@ static int is_end_of_chain(uint32_t cluster) {
     return cluster >= 0x0FFFFFF8;
 }
 
+/* A well-formed chain can visit at most total_clusters distinct clusters
+ * before hitting end-of-chain; a corrupted/cyclic FAT chain can loop
+ * forever instead. Every unbounded chain-walk below is capped at this
+ * many steps and logs+bails instead of hanging. total_clusters is 0
+ * before fat32_init() runs; guard against that too (treat as no bound
+ * met, i.e. always "exceeded" -> caller bails immediately). */
+static int chain_step_limit_exceeded(uint32_t steps) {
+    if (steps > total_clusters) {
+        serial_write_string("FAT32: cyclic/corrupted cluster chain detected - aborting walk\n");
+        return 1;
+    }
+    return 0;
+}
+
 /* Reads one full cluster (sectors_per_cluster sectors) into buffer, which
  * must be at least sectors_per_cluster * bytes_per_sector bytes. */
 static int fat_read_cluster(uint32_t cluster, uint8_t *buffer) {
@@ -175,7 +189,11 @@ int fat_list_dir(uint32_t dir_cluster, struct fat_dirent *out, int max) {
     uint32_t cluster_bytes = sectors_per_cluster * bytes_per_sector;
 
     uint32_t cluster = dir_cluster;
+    uint32_t steps = 0;
     while (!is_end_of_chain(cluster) && count < max) {
+        if (chain_step_limit_exceeded(steps++)) {
+            break;
+        }
         if (cluster_bytes > sizeof(cluster_buf)) {
             serial_write_string("FAT32: cluster size exceeds internal buffer\n");
             return count;
@@ -293,8 +311,12 @@ int64_t fat_read_file(const char *path, uint8_t *buffer, uint32_t buffer_size) {
     uint32_t to_read = entry.size < buffer_size ? entry.size : buffer_size;
     uint32_t bytes_read = 0;
     uint32_t cluster = entry.first_cluster;
+    uint32_t steps = 0;
 
     while (bytes_read < to_read && !is_end_of_chain(cluster)) {
+        if (chain_step_limit_exceeded(steps++)) {
+            break;
+        }
         if (!fat_read_cluster(cluster, cluster_buf)) {
             break;
         }
@@ -378,7 +400,11 @@ static int fat_write_cluster(uint32_t cluster, const uint8_t *buffer) {
 
 static void fat_free_chain(uint32_t start) {
     uint32_t cluster = start;
+    uint32_t steps = 0;
     while (cluster != 0 && !is_end_of_chain(cluster)) {
+        if (chain_step_limit_exceeded(steps++)) {
+            break;
+        }
         uint32_t next = fat_get_next_cluster(cluster);
         fat_set_next_cluster(cluster, 0);
         cluster = next;
@@ -428,7 +454,11 @@ static int find_dirent(uint32_t dir_cluster, const char *component,
     }
 
     uint32_t cluster = dir_cluster;
+    uint32_t steps = 0;
     while (!is_end_of_chain(cluster)) {
+        if (chain_step_limit_exceeded(steps++)) {
+            return 0;
+        }
         if (!fat_read_cluster(cluster, buf)) {
             return 0;
         }
@@ -476,7 +506,11 @@ static int find_free_slot(uint32_t dir_cluster, struct dirent_location *loc) {
 
     uint32_t cluster = dir_cluster;
     uint32_t prev_cluster = 0;
+    uint32_t steps = 0;
     for (;;) {
+        if (chain_step_limit_exceeded(steps++)) {
+            return 0;
+        }
         if (is_end_of_chain(cluster)) {
             uint32_t new_cluster = fat_alloc_cluster();
             if (new_cluster == 0) {
@@ -701,13 +735,36 @@ int fat_write_file(const char *path, const uint8_t *buffer, uint32_t size) {
     uint32_t clusters[256]; /* supports files up to 256 * cluster_bytes; ample for v1 testing */
     uint32_t existing_count = 0;
     uint32_t cluster = entry.first_cluster;
-    while (!is_end_of_chain(cluster) && existing_count < 256) {
-        clusters[existing_count++] = cluster;
-        cluster = fat_get_next_cluster(cluster);
+    /* cluster 0 is never a valid data cluster (data clusters start at 2)
+     * and is not caught by is_end_of_chain() (which only recognizes
+     * 0x0FFFFFF8+ as EOC) - a zero-length file with no allocated cluster
+     * yet (first_cluster == 0, a legitimate on-disk state) must be
+     * treated as an empty chain rather than walked, or fat_get_next_cluster(0)
+     * would read FAT[0]'s reserved/media-descriptor entry as if it were a
+     * real chain link. */
+    if (cluster != 0) {
+        while (!is_end_of_chain(cluster) && existing_count < 256) {
+            clusters[existing_count++] = cluster;
+            cluster = fat_get_next_cluster(cluster);
+        }
     }
 
     if (existing_count < clusters_needed) {
-        uint32_t last = clusters[existing_count - 1];
+        /* existing_count == 0 means no cluster is allocated yet - allocate
+         * a fresh first cluster instead of reading clusters[existing_count - 1],
+         * which would underflow (existing_count is unsigned) to 0xFFFFFFFF
+         * and read garbage off the stack. */
+        uint32_t last;
+        if (existing_count == 0) {
+            uint32_t first = fat_alloc_cluster();
+            if (first == 0) {
+                return 0; /* disk full */
+            }
+            clusters[existing_count++] = first;
+            last = first;
+        } else {
+            last = clusters[existing_count - 1];
+        }
         while (existing_count < clusters_needed) {
             uint32_t new_cluster = fat_alloc_cluster();
             if (new_cluster == 0) {

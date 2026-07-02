@@ -1,14 +1,14 @@
 # gOS — Project Plan v2
 
-**Created:** 2026-07-01 (following the read-only code audit in [audit.md](audit.md), performed against the v1.0 kernel — Phases 0–11 complete)
+**Created:** 2026-07-01 (following the read-only code audit in [audit.md](version1/audit.md), performed against the v1.0 kernel — Phases 0–11 complete)
 
 ---
 
 ## 1. Project Overview
 
-gOS v1.0 is a from-scratch x86_64 OS: UEFI boot via Limine, kernel in C (freestanding) + NASM, a bitmap PMM/paging VMM/heap allocator, PIT/keyboard/serial/ATA drivers, a FAT32 filesystem with CRUD, a framebuffer compositor with draggable windows, and a file manager + text editor UI. All 12 phases of [PROJECT_PLAN.md](PROJECT_PLAN.md) (Phases 0–11) are done.
+gOS v1.0 is a from-scratch x86_64 OS: UEFI boot via Limine, kernel in C (freestanding) + NASM, a bitmap PMM/paging VMM/heap allocator, PIT/keyboard/serial/ATA drivers, a FAT32 filesystem with CRUD, a framebuffer compositor with draggable windows, and a file manager + text editor UI. All 12 phases of [PROJECT_PLAN.md](version1/PROJECT_PLAN.md) (Phases 0–11) are done.
 
-A subsequent read-only audit ([audit.md](audit.md)) reviewed the v1.0 kernel and produced **24 findings**: 5 Critical, 6 High, 6 Medium, 6 Low, plus 6 items explicitly checked and ruled out. **None of these findings have been fixed yet.**
+A subsequent read-only audit ([audit.md](version1/audit.md)) reviewed the v1.0 kernel and produced **24 findings**: 5 Critical, 6 High, 6 Medium, 6 Low, plus 6 items explicitly checked and ruled out. **None of these findings have been fixed yet.**
 
 ### Priority rule
 
@@ -40,32 +40,32 @@ Fixing Track A first means Track B is built on a kernel whose fragile paths are 
 
 ## 3–4. Milestones & Tasks per Phase
 
-### Phase 12 — Critical Audit Fixes
-**Estimated time: 10–15 hours (~1.5–2 weeks)**
+### Phase 12 — Critical Audit Fixes ✅ Complete — see [phase12.md](phase12.md)
+**Estimated time: 10–15 hours (~1.5–2 weeks) — actual: ~9.5 hours**
 
 **Milestone 12.1: FAT32 write-path corruption fixed**
-- [ ] Fix `fat_write_file` unsigned underflow (`kernel/src/fat32.c:709-710`) — guard `existing_count == 0` as a distinct branch (allocate a fresh first cluster) instead of computing `existing_count - 1` unconditionally
-- [ ] Test: in QEMU, create a zero-byte file with `first_cluster = 0` (e.g. via `fat_create_file` without writing, or by seeding the disk image externally with `mtools`/`touch`), then write data to it via the editor; confirm no wild FAT-table write and the write succeeds correctly — verify via `mdir`/`mtype` on the built image afterward
-- [ ] Add a regression note/comment at the guard citing the on-disk-zero-length-file case
+- [x] Fix `fat_write_file` unsigned underflow (`kernel/src/fat32.c:709-710`) — guard `existing_count == 0` as a distinct branch (allocate a fresh first cluster) instead of computing `existing_count - 1` unconditionally
+- [x] Test: in QEMU, create a zero-byte file with `first_cluster = 0` (e.g. via `fat_create_file` without writing, or by seeding the disk image externally with `mtools`/`touch`), then write data to it via the editor; confirm no wild FAT-table write and the write succeeds correctly — verify via `mdir`/`mtype` on the built image afterward
+- [x] Add a regression note/comment at the guard citing the on-disk-zero-length-file case
 
 **Milestone 12.2: FAT32 init failure actually halts**
-- [ ] Fix `kernel/src/start.c:406` vs `:502` — make `fat32_init()` failure call `hcf()` (or otherwise prevent fallthrough) instead of only logging "PANIC"
-- [ ] Move/guard `stress_test()` so it's unreachable when `fat32_init()` failed, not just visually inside an `if` block that doesn't actually gate execution
-- [ ] Test: in QEMU, boot against a disk image with a deliberately corrupted BPB (e.g. zero out the FAT32 signature bytes with a hex editor on a scratch copy of the image) and confirm the kernel halts at the PANIC screen instead of continuing into `stress_test()`/FAT calls — check serial log shows no further FAT32 log lines after the panic
+- [x] Fix `kernel/src/start.c:406` vs `:502` — make `fat32_init()` failure call `hcf()` (or otherwise prevent fallthrough) instead of only logging "PANIC"
+- [x] Move/guard `stress_test()` so it's unreachable when `fat32_init()` failed, not just visually inside an `if` block that doesn't actually gate execution
+- [x] Test: in QEMU, boot against a disk image with a deliberately corrupted BPB (e.g. zero out the FAT32 signature bytes with a hex editor on a scratch copy of the image) and confirm the kernel halts at the PANIC screen instead of continuing into `stress_test()`/FAT calls — check serial log shows no further FAT32 log lines after the panic
 
 **Milestone 12.3: `kfree` double-free detection**
-- [ ] Add an `is_free` check to `kfree` (`kernel/src/heap.c:124-154`) — panic or reject the free (per project convention) if the block is already marked free, before any coalescing happens
-- [ ] Test: in QEMU, add a temporary debug hook (or a startup self-test invoked once) that calls `kmalloc` then `kfree` twice on the same pointer; confirm the second `kfree` is caught (panic/log) instead of silently coalescing into a live neighboring block; remove/gate the test hook behind a debug flag once verified
+- [x] Add an `is_free` check to `kfree` (`kernel/src/heap.c:124-154`) — panic or reject the free (per project convention) if the block is already marked free, before any coalescing happens
+- [x] Test: in QEMU, add a temporary debug hook (or a startup self-test invoked once) that calls `kmalloc` then `kfree` twice on the same pointer; confirm the second `kfree` is caught (panic/log) instead of silently coalescing into a live neighboring block; remove/gate the test hook behind a debug flag once verified
 
 **Milestone 12.4: FAT chain-walk cycle detection**
-- [ ] Add a visited-cluster bound (either a hard iteration cap derived from total cluster count, or a visited-set/Floyd's cycle check) to `fat_list_dir`, `fat_read_file`, `find_dirent`, `fat_free_chain`, and `find_free_slot`'s unbounded `for(;;)` (`kernel/src/fat32.c:178,297,431,381,479-514`)
-- [ ] Test: in QEMU, seed a scratch copy of the disk image with a cluster whose FAT entry points back to an earlier cluster in its own chain (edit the FAT table directly with a hex editor), boot, and trigger a directory listing / file read over that chain; confirm the kernel logs a cycle-detected error and returns instead of hanging — verify via QEMU wall-clock (kernel remains responsive to input) rather than a hard freeze
+- [x] Add a visited-cluster bound (either a hard iteration cap derived from total cluster count, or a visited-set/Floyd's cycle check) to `fat_list_dir`, `fat_read_file`, `find_dirent`, `fat_free_chain`, and `find_free_slot`'s unbounded `for(;;)` (`kernel/src/fat32.c:178,297,431,381,479-514`)
+- [x] Test: in QEMU, seed a scratch copy of the disk image with a cluster whose FAT entry points back to an earlier cluster in its own chain (edit the FAT table directly with a hex editor), boot, and trigger a directory listing / file read over that chain; confirm the kernel logs a cycle-detected error and returns instead of hanging — verify via QEMU wall-clock (kernel remains responsive to input) rather than a hard freeze
 
 **Milestone 12.5: IST for double-fault/NMI**
-- [ ] Wire up TSS `ist1` (`kernel/src/gdt.c:41-47`) to a dedicated, statically-allocated stack; set the double-fault and NMI IDT gates (`kernel/src/idt.c`) to use `ist=1` instead of `ist=0`
-- [ ] Test: in QEMU, deliberately trigger a stack overflow (e.g. unbounded recursion in a debug-only test function) that causes a double fault; confirm via QEMU monitor (`info registers`, checking `RSP`) that the double-fault handler runs on the dedicated IST stack (a distinct address range from the faulting stack) and the panic screen renders instead of a triple fault/reset
+- [x] Wire up TSS `ist1` (`kernel/src/gdt.c:41-47`) to a dedicated, statically-allocated stack; set the double-fault and NMI IDT gates (`kernel/src/idt.c`) to use `ist=1` instead of `ist=0`
+- [x] Test: in QEMU, deliberately trigger a stack overflow (e.g. unbounded recursion in a debug-only test function) that causes a double fault; confirm via QEMU monitor (`info registers`, checking `RSP`) that the double-fault handler runs on the dedicated IST stack (a distinct address range from the faulting stack) and the panic screen renders instead of a triple fault/reset
 
-**Phase 12 exit criterion:** all 5 Critical findings closed, each with a QEMU-verified reproduction-then-fix test passing.
+**Phase 12 exit criterion:** ✅ all 5 Critical findings closed, each with a QEMU-verified reproduction-then-fix test passing. Full writeup, including two repro redesigns and one real test-harness ordering bug found along the way: [phase12.md](phase12.md).
 
 ---
 
@@ -207,17 +207,17 @@ Assuming the same ~7.5 hrs/week pace as the v1 plan:
 
 | Phase | Milestone | Task | Status | Notes |
 |---|---|---|---|---|
-| 12 | 12.1 FAT32 write-path fix | Fix `fat_write_file` underflow | Not Started | |
-| 12 | 12.1 FAT32 write-path fix | QEMU test: zero-length file write | Not Started | |
-| 12 | 12.2 FAT32 init halts | Fix `fat32_init` failure to call `hcf()` | Not Started | |
-| 12 | 12.2 FAT32 init halts | Guard `stress_test()` unreachable on failure | Not Started | |
-| 12 | 12.2 FAT32 init halts | QEMU test: corrupted BPB halts kernel | Not Started | |
-| 12 | 12.3 kfree double-free | Add `is_free` check to `kfree` | Not Started | |
-| 12 | 12.3 kfree double-free | QEMU test: double-free caught | Not Started | |
-| 12 | 12.4 FAT cycle detection | Add cycle/bound check to chain-walk functions | Not Started | |
-| 12 | 12.4 FAT cycle detection | QEMU test: cyclic FAT chain doesn't hang | Not Started | |
-| 12 | 12.5 IST double-fault | Wire TSS `ist1` + IDT gates | Not Started | |
-| 12 | 12.5 IST double-fault | QEMU test: stack overflow uses IST stack | Not Started | |
+| 12 | 12.1 FAT32 write-path fix | Fix `fat_write_file` underflow | Done | Also fixed cluster-0 chain-walk guard; see [phase12.md](phase12.md) |
+| 12 | 12.1 FAT32 write-path fix | QEMU test: zero-length file write | Done | Confirmed pre-fix wild write hit FAT2 mirror sector 2048; mtools cross-check |
+| 12 | 12.2 FAT32 init halts | Fix `fat32_init` failure to call `hcf()` | Done | |
+| 12 | 12.2 FAT32 init halts | Guard `stress_test()` unreachable on failure | Done | `hcf()` halts before stress_test() is reached |
+| 12 | 12.2 FAT32 init halts | QEMU test: corrupted BPB halts kernel | Done | Pre-fix build reported false "Stress test: PASS" on invalid FS |
+| 12 | 12.3 kfree double-free | Add `is_free` check to `kfree` | Done | Plus a permanent double-free self-test in `heap_self_test()` |
+| 12 | 12.3 kfree double-free | QEMU test: double-free caught | Done | Pre-fix repro showed real pointer aliasing + data corruption |
+| 12 | 12.4 FAT cycle detection | Add cycle/bound check to chain-walk functions | Done | Shared `chain_step_limit_exceeded()` helper, all 5 sites |
+| 12 | 12.4 FAT cycle detection | QEMU test: cyclic FAT chain doesn't hang | Done | Pre-fix build hung 35+s confirmed via `info registers` |
+| 12 | 12.5 IST double-fault | Wire TSS `ist1` + IDT gates | Done | Dedicated 16KiB `ist1_stack` |
+| 12 | 12.5 IST double-fault | QEMU test: stack overflow uses IST stack | Done | Pre-fix triple-faulted (frozen, no panic screen); post-fix RSP confirmed inside ist1_stack bounds |
 | 13 | 13.1 ATA write ERR/DF | Check ERR/DF after cache flush | Not Started | |
 | 13 | 13.1 ATA write ERR/DF | Verify status-read path executes | Not Started | |
 | 13 | 13.2 Drag clamping | Clamp window drag x/y | Not Started | |

@@ -70,12 +70,23 @@ static void hcf(void) {
     }
 }
 
+#if defined(GOS_TEST_STACK_OVERFLOW)
+__attribute__((noinline))
+static void stack_overflow_recurse(uint64_t depth) {
+    volatile uint8_t junk[256];
+    for (int i = 0; i < 256; i++) {
+        junk[i] = (uint8_t)(depth + i); /* prevent the array from being optimized away */
+    }
+    stack_overflow_recurse(depth + 1);
+}
+#endif
+
 /* Milestone 11.1 stress test: the plan calls for "rapidly create/delete/
  * rename files and open/close windows for several minutes without a
  * crash." A literal several-minute run isn't practical for an automated
  * headless boot-time self-test, so this runs a large, fixed number of
  * cycles instead (fast - seconds, not minutes) as the automated
- * equivalent; see phase11.md for the live -display cocoa command used to
+ * equivalent; see version1/phase11.md for the live -display cocoa command used to
  * additionally soak-test this interactively for real minutes. Must run
  * after fat32_init() and window_system_init(), and with no other windows
  * open yet (so window slots are free to cycle through). */
@@ -304,6 +315,34 @@ void _start(void) {
             serial_write_string("\n");
         }
 
+#if defined(GOS_TEST_ZEROLEN_WRITE)
+        /* Phase 12, Milestone 12.1 repro: ZEROLEN.TXT is a zero-byte file
+         * created externally via mtools (mcopy of an empty host file),
+         * which leaves first_cluster == 0 on disk - a legitimate on-disk
+         * state fat_write_file must handle without underflowing
+         * existing_count. Before the fix, this call corrupted an
+         * arbitrary FAT sector (wild write) instead of returning cleanly. */
+        serial_write_string("TEST: fat_write_file(ZEROLEN.TXT) - first_cluster==0 repro...\n");
+        int zerolen_ok = fat_write_file("ZEROLEN.TXT", (const uint8_t *)"hi", 2);
+        serial_write_string("TEST: fat_write_file(ZEROLEN.TXT) = ");
+        serial_write_string(zerolen_ok ? "1 (OK)" : "0 (FAILED)");
+        serial_write_string("\n");
+        {
+            uint8_t verify_buf[8];
+            int64_t vn = fat_read_file("ZEROLEN.TXT", verify_buf, sizeof(verify_buf) - 1);
+            if (vn >= 0) {
+                verify_buf[vn] = '\0';
+                serial_write_string("TEST: read back ZEROLEN.TXT (");
+                serial_write_uint((uint64_t)vn);
+                serial_write_string(" bytes): \"");
+                serial_write_string((const char *)verify_buf);
+                serial_write_string("\"\n");
+            } else {
+                serial_write_string("TEST: read back ZEROLEN.TXT FAILED\n");
+            }
+        }
+#endif
+
         static uint8_t file_buf[512];
         int64_t n = fat_read_file("HOSTFILE.TXT", file_buf, sizeof(file_buf) - 1);
         if (n < 0) {
@@ -328,6 +367,34 @@ void _start(void) {
             serial_write_string((const char *)file_buf);
             serial_write_string("\"\n");
         }
+
+#if defined(GOS_TEST_CYCLIC_CHAIN)
+        /* Phase 12, Milestone 12.4 repro: TESTDIR's single directory
+         * cluster has been corrupted (via a host-side scratch-image edit)
+         * two ways - (1) filled with 16 valid-looking, non-deleted,
+         * non-zero dirents so fat_list_dir never finds a 0x00
+         * end-of-directory marker within that cluster, and (2) FAT[TESTDIR's
+         * cluster] points back to itself instead of end-of-chain. This
+         * forces fat_list_dir to call fat_get_next_cluster() repeatedly
+         * with no way to naturally terminate. Before the fix this is a
+         * genuine infinite loop; after the fix it bails out after
+         * total_clusters steps and logs a cycle-detected message instead
+         * of hanging. */
+        serial_write_string("TEST: listing TESTDIR (cyclic FAT chain repro, non-terminated cluster)...\n");
+        {
+            struct fat_dirent testdir_entry;
+            if (fat_resolve_path("TESTDIR", &testdir_entry)) {
+                static struct fat_dirent children[FAT32_MAX_DIRENTS];
+                int c = fat_list_dir(testdir_entry.first_cluster, children, FAT32_MAX_DIRENTS);
+                serial_write_string("TEST: fat_list_dir(TESTDIR) returned (");
+                serial_write_uint((uint64_t)c);
+                serial_write_string(" entries) - did not hang\n");
+            } else {
+                serial_write_string("TEST: could not resolve TESTDIR\n");
+            }
+        }
+        serial_write_string("TEST: cyclic chain repro complete, kernel still responsive\n");
+#endif
 
         /* Milestone 8.3: write support. PERSIST.TXT is deliberately never
          * deleted - on the first boot against a fresh disk image,
@@ -404,11 +471,42 @@ void _start(void) {
         }
     } else {
         serial_write_string("FAT32: PANIC - not a valid FAT32 filesystem\n");
+        hcf(); /* BPB globals were never populated - any further FAT32 call
+                * (including stress_test() below) would operate on garbage. */
     }
 
     fb_init(fb->address, fb->width, fb->height, fb->pitch, fb->bpp,
             fb->red_mask_shift, fb->green_mask_shift, fb->blue_mask_shift);
     fb_clear(fb_make_color(0, 64, 128)); /* dark blue, to prove real pixel writes over the raw framebuffer */
+
+#if defined(GOS_TEST_STACK_OVERFLOW)
+    /* Phase 12, Milestone 12.5 repro: unbounded recursion that writes to
+     * a stack-local array on every call, forcing genuine stack growth
+     * (not optimized to a loop - built at -O0, and the volatile write
+     * plus recursive call prevent tail-call/inlining), same as a real
+     * stack-overflow bug would. vmm_init() identity-maps the entire
+     * first 4GiB, so there's no nearby unmapped guard page below the
+     * normal boot stack for recursion to hit in a practical amount of
+     * time - to keep the repro fast and deterministic, RSP is first
+     * pointed near the bottom of the address space (0x1000) so a
+     * handful of recursive calls underflow past address 0 into
+     * genuinely unmapped/non-canonical memory. The first fault there
+     * exhausts that same bad RSP, so pushing the fault handler's own
+     * frame immediately faults again -> double fault (vector 8).
+     * Confirms IST1 routes vector 8 to a separate, valid stack instead
+     * of reusing the exhausted one. Placed after fb_init() (unlike the
+     * other GOS_TEST_* triggers) because panic_screen(), called from the
+     * exception handler, needs the framebuffer ready to actually draw. */
+    serial_write_string("TEST: deliberately overflowing the stack to trigger a double fault...\n");
+    __asm__ volatile (
+        "mov $0x1000, %%rsp\n"
+        "xor %%rdi, %%rdi\n"
+        "call stack_overflow_recurse\n"
+        :
+        :
+        : "memory"
+    );
+#endif
 
     /* Milestone 5.2 test pattern: nested rectangles + diagonal lines,
      * exercising fb_draw_rect, fb_draw_rect_outline, and fb_draw_line
@@ -464,7 +562,7 @@ void _start(void) {
      * position for ~5 seconds (100 frames @ 50ms), logging whenever it
      * moves. Real movement is injected externally via the QEMU monitor's
      * `mouse_move`/`mouse_button` commands during this window - see
-     * phase6.md for the exact test procedure. */
+     * version1/phase6.md for the exact test procedure. */
     {
         int64_t last_x = -1, last_y = -1;
         uint8_t last_buttons = 0xFF;
@@ -497,7 +595,7 @@ void _start(void) {
      * exercises reordering a window out of the middle/back of the z-order,
      * not just a trivial two-element swap. Driven interactively for ~10
      * seconds via QEMU monitor mouse_move/mouse_button commands - see
-     * phase6.md for the exact test procedure. */
+     * version1/phase6.md for the exact test procedure. */
     window_system_init();
     stress_test();
     int win_a = window_create(150, 150, 300, 200, fb_make_color(70, 70, 200), fb_make_color(30, 30, 60), "Window A");

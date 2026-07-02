@@ -137,6 +137,16 @@ void kfree(void *ptr) {
         serial_write_string("HEAP CORRUPTION: footer magic mismatch at kfree() - buffer overrun likely\n");
         return;
     }
+    if (b->is_free) {
+        /* Both magic checks pass but the block is already free - a
+         * double-free. Without this check, the code below would
+         * re-mark it free and potentially coalesce with a neighbor
+         * that's since been reallocated and is live, silently
+         * corrupting whoever now owns that memory. */
+        corruption_count++;
+        serial_write_string("HEAP CORRUPTION: double free detected at kfree() - block already free\n");
+        return;
+    }
 
     b->is_free = 1;
 
@@ -254,8 +264,29 @@ int heap_self_test(void) {
         return 0;
     }
 
+    /* Phase 12, Milestone 12.3: deliberately double-free a live allocation
+     * to prove kfree()'s is_free check actually catches it, the same way
+     * the overrun test above proves the magic guards work. Both magic
+     * checks pass on the second free (the block is otherwise intact) -
+     * only the is_free check can catch this. Expected to log a "HEAP
+     * CORRUPTION: double free" message below - that message appearing is
+     * the test PASSING. */
+    serial_write_string("Heap self-test: deliberately double-freeing a block to verify double-free detection...\n");
+    void *dbl = kmalloc(16);
+    if (!dbl) {
+        serial_write_string("Heap self-test: FAIL (could not allocate double-free victim block)\n");
+        return 0;
+    }
+    kfree(dbl); /* first free: legitimate, should succeed silently */
+    uint64_t corruption_before_dblfree = heap_corruption_count();
+    kfree(dbl); /* second free: double-free, should be caught and logged, not crash/coalesce */
+    if (heap_corruption_count() != corruption_before_dblfree + 1) {
+        serial_write_string("Heap self-test: FAIL (double free was NOT detected)\n");
+        return 0;
+    }
+
     serial_write_string("Heap self-test: PASS (");
     serial_write_uint(STRESS_ITERATIONS);
-    serial_write_string(" cycles clean, guard correctly detected deliberate overrun)\n");
+    serial_write_string(" cycles clean, guard correctly detected deliberate overrun and double-free)\n");
     return 1;
 }

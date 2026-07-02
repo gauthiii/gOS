@@ -1,5 +1,8 @@
 #include <gdt.h>
 #include <stdint.h>
+#if defined(GOS_TEST_STACK_OVERFLOW)
+#include <serial.h>
+#endif
 
 /* Standard 8-byte GDT descriptor, used for null/code/data entries. */
 struct gdt_entry {
@@ -67,6 +70,13 @@ static struct tss tss;
  * can dynamically allocate per-task/interrupt stacks. */
 static uint8_t tss_stack[16384] __attribute__((aligned(16)));
 
+/* Phase 12, Milestone 12.5: dedicated IST1 stack for double-fault/NMI, so
+ * a stack-overflow-triggered double fault doesn't reuse the same
+ * already-overflowed stack (which risks a triple fault/reset instead of
+ * the panic screen actually running). Separate static region from
+ * tss_stack so it isn't itself exhausted by whatever overflowed rsp0. */
+static uint8_t ist1_stack[16384] __attribute__((aligned(16)));
+
 static void gdt_set_entry(struct gdt_entry *e, uint8_t access, uint8_t granularity) {
     e->limit_low = 0;
     e->base_low = 0;
@@ -91,6 +101,7 @@ void gdt_init(void) {
     gdt_set_entry(&gdt.user_data, 0xF2, 0x00);
 
     tss.rsp0 = (uint64_t)&tss_stack[sizeof(tss_stack)];
+    tss.ist1 = (uint64_t)&ist1_stack[sizeof(ist1_stack)];
     tss.iomap_base = sizeof(struct tss);
 
     uint64_t tss_base = (uint64_t)&tss;
@@ -109,4 +120,12 @@ void gdt_init(void) {
     gdtp.base = (uint64_t)&gdt;
 
     gdt_flush((uint64_t)&gdtp, GDT_TSS);
+
+#if defined(GOS_TEST_STACK_OVERFLOW)
+    serial_write_string("DEBUG: tss.ist1=0x");
+    serial_write_hex64(tss.ist1);
+    serial_write_string(" ist1_stack top=0x");
+    serial_write_hex64((uint64_t)&ist1_stack[sizeof(ist1_stack)]);
+    serial_write_string("\n");
+#endif
 }
