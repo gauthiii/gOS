@@ -2,9 +2,9 @@
 
 A hobby x86_64 operating system, built completely from scratch: no existing kernel, no existing libc, no existing GUI toolkit. Everything from the UEFI boot handoff to a clickable file manager is hand-written C and x86_64 assembly.
 
-gOS boots via [Limine](https://github.com/limine-bootloader/limine) into a desktop with a background, a taskbar, and a "Files" launcher icon; draws directly to a framebuffer; runs its own windowing system with draggable/overlappable/closable windows; renders its own bitmap-font text; reads and writes a real FAT32 disk image through a hand-written ATA PIO driver; and has a graphical File Manager with full CRUD — create folders/files, open and edit text files, save with Ctrl+S, delete, and rename — all backed by the real filesystem, not a mock. Unhandled CPU exceptions show a red kernel panic screen instead of silently hanging.
+gOS boots via [Limine](https://github.com/limine-bootloader/limine) into a desktop with a background, a taskbar, and a "Files" launcher icon in about a second; draws directly to a framebuffer; runs its own windowing system with draggable/overlappable/closable windows; renders its own bitmap-font text; reads and writes a real FAT32 disk image through a hand-written ATA PIO driver; and has a graphical File Manager with full CRUD — create folders/files, open and edit text files, save with Ctrl+S, delete, and rename — all backed by the real filesystem, not a mock. Unhandled CPU exceptions show a red kernel panic screen instead of silently hanging.
 
-Development is tracked as a sequence of phases. v1.0 (Phases 0–11) is documented in [version1/PROJECT_PLAN.md](version1/PROJECT_PLAN.md), each with its own detailed write-up (`version1/phase0.md` through `version1/phase11.md`). Past v1.0, [version1/phase-patch.md](version1/phase-patch.md) documents a follow-up patch (a real hang fix plus unlabeled-button UX fix), and [version1/audit.md](version1/audit.md) is a standalone, read-only flaw audit of the whole v1.0 kernel (24 ranked findings). [project-plan-2.md](project-plan-2.md) is the current v2 plan: **Track A** (fixing every audit finding) followed by **Track B** (new features) — see [phase12.md](phase12.md), [phase13.md](phase13.md), and [phase14.md](phase14.md) for Track A's three phases, and [phase15.md](phase15.md) for Track B's first phase.
+Development is tracked as a sequence of phases. v1.0 (Phases 0–11) is documented in [version1/PROJECT_PLAN.md](version1/PROJECT_PLAN.md), each with its own detailed write-up (`version1/phase0.md` through `version1/phase11.md`). Past v1.0, [version1/phase-patch.md](version1/phase-patch.md) documents a follow-up patch (a real hang fix plus unlabeled-button UX fix), and [version1/audit.md](version1/audit.md) is a standalone, read-only flaw audit of the whole v1.0 kernel (24 ranked findings). [project-plan-2.md](project-plan-2.md) is the v2 plan: **Track A** audit fixes + **Track B** new features (both complete), plus **Track C** OS internals, **Track D** desktop/storage, and **Track E** apps — see [phase12.md](phase12.md)–[phase14.md](phase14.md) for Track A, [phase15.md](phase15.md)–[phase17.md](phase17.md) for Track B, and [phase18.md](phase18.md)/[phase19.md](phase19.md) for Tracks C–E so far.
 
 ---
 
@@ -24,21 +24,25 @@ gOS targets a real (or emulated) x86_64 PC. The numbers below are the environmen
 | **Filesystem** | FAT32, hand-written from scratch (BPB parsing, cluster-chain walking with cycle detection, directory entries, 8.3 names only — no long filenames) |
 | **Display** | Framebuffer graphics via Limine's GOP handoff, currently 1280x800 (whatever resolution Limine/UEFI negotiates), 32bpp, double-buffered |
 | **Input** | PS/2 keyboard (with extended 0xE0-prefixed scancode handling) and PS/2 mouse only — no USB HID beyond QEMU's emulated PS/2 translation |
-| **Windowing** | Custom compositor: up to `MAX_WINDOWS = 8` simultaneous windows, draggable/overlappable/z-ordered/closable, no resize/minimize/maximize yet |
+| **Windowing** | Custom compositor: up to `MAX_WINDOWS = 8` simultaneous windows, draggable/overlappable/z-ordered/closable/minimizable/maximizable/resizable (drag any edge or the bottom-right corner), with a persistent taskbar for restore/focus and Alt+Tab keyboard switching |
 | **Text rendering** | Hand-embedded 8x8 bitmap font (no font file loading, no anti-aliasing, no Unicode — ASCII only) |
 | **Memory management** | Bitmap physical page allocator, 4-level paging (kernel controls its own page tables), `kmalloc`/`kfree` heap allocator with double-free detection, dedicated 16 KiB IST1 stack for double-fault/NMI |
-| **Interrupts** | Custom GDT/IDT/TSS, PIC-remapped hardware IRQs, spurious-IRQ7/15 detection |
+| **Interrupts** | Custom GDT/IDT/TSS, PIC-remapped hardware IRQs, spurious-IRQ7/15 detection, an `int 0x80` DPL=3 syscall gate (`write`/`spawn`/`waitpid`/`exit`) |
+| **User mode & multitasking** | Ring 3 execution, a minimal ELF64 loader (static/non-relocatable `ET_EXEC` only), real per-process page-table isolation (separate `CR3` per process), and preemptive round-robin scheduling with `spawn`/`exit`/`waitpid` syscalls — up to `MAX_PROCESSES = 8` concurrent processes; `waitpid` is poll-style, not truly blocking |
+| **Real-time clock** | CMOS RTC read (BCD/12-hour normalized), a live taskbar clock (1-second resolution) |
+| **Settings** | A small persisted `GOS.CFG` on the FAT32 root — wallpaper mode (bundled BMP vs. gradient, toggled with F2) and the File Manager's last window geometry, auto-saved on change and restored at boot |
 | **Networking** | None |
 | **Audio** | None |
-| **Multi-user / permissions** | None — single implicit user, no privilege separation, kernel memory mapped uniformly RWX (no W^X enforcement) |
+| **Multi-user / permissions** | None — single implicit user, no privilege separation, kernel memory mapped uniformly RWX (no W^X enforcement); ring-3 user-mode code has real per-process page-table isolation (Phase 20) but no user/permission model beyond that |
 | **Toolchain** | `x86_64-elf-gcc` (freestanding, no libc), NASM, `x86_64-elf-gdb`, built and tested on macOS + QEMU (Linux hosts work with equivalent packages) |
 
-**Status: v1.0 complete, plus post-v1.0 patch, plus Track A (all 24 audit findings fixed), plus Track B Phase 15 (cursor & wallpaper).** Toolchain → bootloader → interrupts → memory management → drivers → graphics → windowing → fonts/text input → FAT32 filesystem → file manager UI → CRUD operations → polish/stability (v1.0) → 5 Critical + 6 High + 12 Medium/Low audit fixes (Track A, Phases 12–14) → real arrow cursor + gradient/BMP wallpaper (Track B, Phase 15). Phase 16 (window close/minimize/taskbar) and the optional Phase 17 (maximize) have not started yet — see [project-plan-2.md](project-plan-2.md)'s status tracker.
+**Status: v1.0 complete, plus post-v1.0 patch, plus Track A (all 24 audit findings fixed), plus all of Track B (Phases 15–17: cursor/wallpaper, window minimize/close/taskbar, maximize), plus Track C Phases 18–20 (boot-time cleanup, user mode/syscalls/ELF loader, preemptive multitasking), plus Track D Phases 21–22 (window resize & Alt+Tab, RTC/clock/settings persistence).** Toolchain → bootloader → interrupts → memory management → drivers → graphics → windowing → fonts/text input → FAT32 filesystem → file manager UI → CRUD operations → polish/stability (v1.0) → 5 Critical + 6 High + 12 Medium/Low audit fixes (Track A, Phases 12–14) → real arrow cursor + gradient/BMP wallpaper (Track B, Phase 15) → window minimize + persistent taskbar restore/focus (Track B, Phase 16) → window maximize/restore (Track B, Phase 17) → default boot time cut from ~75-80s to ~1s (Phase 18) → ring 3 execution + syscalls + an ELF64 loader running a real bundled binary (Track C, Phase 19) → real preemptive multitasking with per-process page-table isolation (Track C, Phase 20) → drag-to-resize windows + Alt+Tab switching (Track D, Phase 21) → CMOS RTC + taskbar clock + persisted wallpaper/window settings (Track D, Phase 22). Phases 23–24 (long filenames, shell/calculator/image viewer) have not started yet — see [project-plan-2.md](project-plan-2.md)'s status tracker.
 
 ### Known limitations
 
-- **v1.0 scope boundaries** (still true post-Track-A/Phase-15): no networking, no multi-core/SMP, no sound, no USB beyond QEMU's emulated PS/2, no real package manager, no POSIX compatibility, no multi-user/permissions, no JIT/scripting layer, no fine-grained W^X page permissions (kernel mapped uniformly RWX), no window resizing/minimize/maximize.
-- **Phase 16/17 not started**: no window minimize, no taskbar restore/focus beyond click-to-front, no window maximize/restore.
+- **v1.0 scope boundaries** (still true today): no networking, no multi-core/SMP, no sound, no USB beyond QEMU's emulated PS/2, no real package manager, no POSIX compatibility, no multi-user/permissions, no JIT/scripting layer, no fine-grained W^X page permissions (kernel mapped uniformly RWX).
+- **`wait` is poll-style, not truly blocking**: `SYS_WAITPID` (Phase 20) returns `-1` until the target process is a zombie, rather than descheduling the caller until the child exits — a documented scope cut (see [phase20.md](phase20.md)) since a real blocking wait needs a wait-queue this phase didn't build.
+- **No long filenames**: FAT32 support is 8.3 names only (planned for Phase 23).
 - **Environment-specific hardware assumptions carried from v1.0**: single ATA drive on the primary master IDE channel (no secondary channel, no AHCI/NVMe), legacy 8259 PIC only (no APIC/x2APIC), PS/2 keyboard/mouse only.
 - **Known-safe-by-convention, not by construction**: `fm.c`'s double-click file identity is tracked by row index, not filename — safe today only because every listing-mutating code path calls `fm_refresh()` first (see Finding #24 in [phase14.md](phase14.md)); documented as an explicit invariant rather than hardened against.
 
@@ -61,6 +65,16 @@ gOS targets a real (or emulated) x86_64 PC. The numbers below are the environmen
 - An automated boot-time **stress test** (150 file create/write/rename/delete cycles + 300 window create/close cycles) proving the system survives rapid churn without crashing
 - **Post-v1.0 audit remediation (Track A, Phases 12–14):** a dedicated IST stack for double-fault/NMI so a stack overflow shows the panic screen instead of a triple-fault reset; FAT32 chain-walk cycle detection so a corrupted disk can't hang the kernel; `kfree()` double-free detection; `vmm_unmap_page()` with proper TLB invalidation; an ATA drive-presence probe so a missing disk fails fast instead of burning a ~100,000-iteration busy-wait; window drag coordinates clamped to the screen edge; every `window_create()` call site checked, with a new on-screen flash-message mechanism surfacing failures the user would otherwise never see; and 15 further correctness/robustness fixes — see [phase12.md](phase12.md), [phase13.md](phase13.md), [phase14.md](phase14.md) for the full list, each with a live before/after QEMU reproduction of the original bug
 - **Cursor & wallpaper (Track B, Phase 15):** a real 12x19 arrow-shaped mouse cursor with transparency, drawn in the compositor's true top layer (above every window and the taskbar); a desktop wallpaper layer — a vertical gradient by default, or a hand-decoded 24bpp BMP image (`WALLPAPR.BMP`) bundled on the FAT32 disk image and loaded through the hardened FAT32 read path, with graceful fallback to the gradient if the file is missing or malformed — see [phase15.md](phase15.md)
+- **Window minimize & taskbar restore (Track B, Phase 16):** every window now has a titlebar minimize ("_") button alongside the close ("X") button — minimizing hides a window (state, buttons, and any unsaved textbox content fully preserved) without tearing it down; the taskbar visually dims a minimized window's entry and restores-then-focuses it on click, while an already-visible entry's click just focuses it as before; window teardown on close was verified leak-free with a real heap measurement across 20 open/close cycles — see [phase16.md](phase16.md)
+- **Window maximize/restore (Track B, Phase 17):** a third titlebar button (a teal square, toggling to two overlapping squares when maximized) fills a window to the full screen minus the taskbar, and restores it to its exact prior position and size on a second click — proven to round-trip geometry exactly via both a numeric before/after/restore log and a live visual test; dragging is disabled while maximized (restore first) — see [phase17.md](phase17.md)
+- **Fast boot (Phase 18):** `make run` now reaches the interactive desktop in about a second — the old ~75-80 second boot (a bouncing-rectangle animation, a "Hello, gOS!" hold, a live mouse-cursor test window, and a 450-cycle file/window stress test, all running unconditionally on every boot) is gated behind a new `make diagnostic` build, preserving every regression check with zero loss of coverage while defaulting to a boot that's actually fast to iterate on — see [phase18.md](phase18.md)
+- **User mode, syscalls & an ELF loader (Track C, Phase 19):** gOS can now drop into ring 3, take an `int 0x80` syscall (`write`/`exit`) back from user-mode code, and load/run a genuine, separately-built ELF64 binary (`HELLO.ELF`, bundled on the disk image) — proving a real user-mode program, not just kernel code, can execute and talk to the kernel. Found and fixed a real bug along the way: the VMM's page-table walker wasn't propagating the user-accessible permission bit to already-existing intermediate page-table entries, silently blocking the very first ring-3 mapping gOS ever attempted — see [phase19.md](phase19.md)
+- **Real preemptive multitasking (Track C, Phase 20):** multiple independent processes, each with its own private page tables (separate `CR3`), run concurrently under genuine timer-driven preemption — proven by two processes loading at the identical virtual address with zero collision, and by serial output from concurrent processes visibly interleaving rather than running sequentially. New `spawn`/`exit`/`waitpid` syscalls round-trip a specific exit code from a spawned child back to its parent, and a 5-process fairness test confirms no starvation and a fully responsive desktop afterward. Found and fixed a NASM label/register-name collision (a data label named `ch` shadowed the `CH` register) and an initial test whose workload was too fast to actually trigger preemption — see [phase20.md](phase20.md)
+- **Window resize & Alt+Tab (Track D, Phase 21):** every window can now be resized by dragging any edge or the bottom-right corner, clamped to a sane minimum size and the screen bounds; Alt+Tab cycles focus through every open window with no mouse involved. Found and fixed a real design bug before ever booting it: the first focus-cycling implementation only ever toggled between the last two windows instead of visiting all of them, caught by hand-tracing the algorithm against the milestone's own "stable, non-repeating order" requirement — see [phase21.md](phase21.md)
+- **RTC, taskbar clock & settings persistence (Track D, Phase 22):** a CMOS real-time-clock driver feeds a live taskbar clock, verified to advance exactly 10 seconds between two precisely-timed screendumps against a QEMU-controlled clock. A new `GOS.CFG` file persists the wallpaper choice (F2 toggles between the bundled BMP and a plain gradient) and the File Manager's window geometry, auto-saved on change and restored on the next boot — independently verified byte-for-byte via `xxd` on the raw file, not just gOS's own read-back — see [phase22.md](phase22.md)
+- **FAT32 long filename (VFAT) support (Track D, Phase 23):** filenames up to 63 ASCII characters now read, display, create, rename, and delete correctly, reconstructing/generating the VFAT long-name directory entries (checksum-linked to a generated `BASENAM~1.EXT`-style short alias) that were previously just skipped. Verified in both directions against `mtools` (`mdir`/`mtype`) — host-seeded long names read correctly by gOS, and gOS-created/renamed/deleted long names read correctly from the host afterward — with the full pre-existing regression suite unaffected — see [phase23.md](phase23.md)
+- **Shell, Calculator & Image Viewer (Track E, Phase 24):** a kernel-mode Terminal (`ls`/`cd`/`run <NAME.ELF>`/`help`/`clear`) whose `run` command performs a genuine ring-3 spawn-and-wait through Phase 20's real scheduler (`run Child.Elf` prints the exact exit code, 7, round-tripped from the ELF's own `SYS_EXIT`); a Calculator supporting integer `+ - x /` (verified against the milestone's own `1,2,+,7,= → 19` example, click for click); and an Image Viewer reusing Milestone 15.3's BMP decoder (extracted into a shared `bmp.c` module), opened by double-clicking any `.BMP` file in the File Manager and pixel-verified byte-for-byte against the source file via an independent Python decode. Found and fixed a real bug along the way: the Terminal's command parser was including its own echoed prompt text in the string it tried to execute — see [phase24.md](phase24.md)
+- **Desktop wallpaper picker & clock fix (Patch v2):** a right-click desktop context menu offers 5 wallpaper choices (Gradient, Default, plus 3 user-provided images converted from JPEG to gOS's supported BMP format, since there's no JPEG decoder - by the same scope choice Phase 15.3 made originally), replacing a previously hidden F2-only toggle; the taskbar clock's margin no longer touches the screen edge. Found and fixed two real bugs: the context menu could render partly off-screen near a corner, and two of the wallpaper options had their labels swapped relative to their images — see [phase-patchv2.md](phase-patchv2.md)
 
 ---
 
@@ -101,15 +115,18 @@ This pulls in the `x86_64-elf-binutils` cross-toolchain as a dependency of `x86_
 make run
 ```
 
-This one command: builds the kernel, packages it with Limine into a bootable ISO, creates a 64 MiB FAT32 disk image (first run only — it's preserved across rebuilds so file writes persist), and launches it in QEMU with a real graphical window (mouse and keyboard both work normally in this window).
+This one command: builds the kernel, packages it with Limine into a bootable ISO, creates a 64 MiB FAT32 disk image (first run only — it's preserved across rebuilds so file writes persist), and launches it in QEMU with a real graphical window (mouse and keyboard both work normally in this window). The desktop is interactive in about a second.
 
 Other useful targets:
 
 ```bash
-make build   # compile the kernel only
-make iso     # build the bootable ISO
-make debug   # like `run`, but pauses at boot and opens a GDB stub (-s -S)
-make clean   # remove build artifacts (kernel, ISO — NOT the disk image)
+make build        # compile the kernel only
+make iso          # build the bootable ISO
+make debug        # like `run`, but pauses at boot and opens a GDB stub (-s -S)
+make diagnostic   # rebuilds with the full pre-Phase-18 boot sequence restored (regression
+                   # demos + the 450-cycle file/window stress test) - useful when you actually
+                   # want to watch/verify those checks, not for everyday use
+make clean        # remove build artifacts (kernel, ISO — NOT the disk image)
 ```
 
 To force a completely fresh, empty filesystem (wiping any files created during prior sessions):
@@ -299,6 +316,205 @@ The BMP's magic bytes were deliberately corrupted on a scratch disk image; the l
 
 ![Corrupted BMP falls back to gradient](screenshots/phase15_badbmp_fallback.png)
 
+### Phase 16 — Window Close, Minimize & Taskbar (Track B)
+
+**Typing unsaved text, then minimizing the window** ([phase16.md](phase16.md), Milestone 16.2)
+The Text Editor open on `PERSIST.TXT` with real, unsaved keystrokes typed into it (" unsaved" appended, never saved to disk) — proving the minimize test exercises a genuine in-memory edit, not just pre-existing file content.
+
+![Editor with unsaved marker text before minimizing](screenshots/phase16_16_2_before_minimize.png)
+
+**Minimized: window fully hidden, state preserved** ([phase16.md](phase16.md), Milestone 16.2)
+Clicking the new amber "_" button hides the editor completely — only the File Manager remains on screen, and the editor's taskbar entry dims to show it's minimized, not closed.
+
+![Editor minimized, only File Manager visible](screenshots/phase16_16_2_minimized.png)
+
+**Restored via the taskbar: unsaved text still there** ([phase16.md](phase16.md), Milestone 16.3)
+Clicking the dimmed taskbar entry restores the editor to its exact original position, focused, with the unsaved " unsaved" text still intact — state genuinely survived the minimize/restore cycle.
+
+![Editor restored with unsaved text intact](screenshots/phase16_16_3_restored.png)
+
+**Three windows open, one minimized** ([phase16.md](phase16.md), Milestone 16.3)
+File Manager, Text Editor, and a "New Folder" dialog all open simultaneously — the taskbar correctly lists all three, proving it isn't limited to a fixed set of app types.
+
+![Three windows open, dialog frontmost](screenshots/phase16_three_open.png)
+
+**Dialog minimized, two windows remain** ([phase16.md](phase16.md), Milestone 16.3)
+The dialog's entry dims after minimizing it; the editor (previously hidden behind the dialog) is visible again underneath.
+
+![Dialog minimized, editor and File Manager visible](screenshots/phase16_dialog_minimized.png)
+
+**Two of three minimized** ([phase16.md](phase16.md), Milestone 16.3)
+Both the editor and the dialog minimized — only the File Manager remains, with two dimmed taskbar entries confirming the other two are alive but hidden, not closed.
+
+![Two of three windows minimized](screenshots/phase16_three_minimized_two.png)
+
+**Editor restored via its taskbar entry** ([phase16.md](phase16.md), Milestone 16.3)
+Clicking the editor's dimmed entry brings it back to its exact original geometry (300,120) and focuses it — the dialog stays minimized.
+
+![Editor restored to exact original position](screenshots/phase16_editor_restored_via_taskbar.png)
+
+**Dialog also restored, now frontmost** ([phase16.md](phase16.md), Milestone 16.3)
+Clicking the dialog's entry restores it too, to its exact original position (160,120), now drawn on top of the editor as the newly-focused window.
+
+![Dialog restored and frontmost](screenshots/phase16_dialog_restored_via_taskbar.png)
+
+### Phase 17 — Maximize & Polish (Track B)
+
+**Before maximizing: normal window size, three-button titlebar** ([phase17.md](phase17.md), Milestone 17.1)
+The Text Editor at its regular 380×220 size — every window now has a teal square maximize button in addition to Phase 16's minimize and close buttons.
+
+![Editor before maximizing, three titlebar buttons visible](screenshots/phase17_before_max.png)
+
+**Maximized: fills the screen exactly down to the taskbar** ([phase17.md](phase17.md), Milestone 17.1)
+One click on the maximize button and the editor fills the entire screen, with no gap or overlap at the taskbar edge and the wallpaper/File Manager fully hidden underneath.
+
+![Editor maximized, filling the screen above the taskbar](screenshots/phase17_maximized.png)
+
+**Restored: back to the exact original position and size** ([phase17.md](phase17.md), Milestone 17.1)
+Clicking the button again (now showing the restore glyph) returns the window to precisely where it was — verified both visually here and numerically in the phase doc (137,211,333×141 in, 137,211,333×141 out).
+
+![Editor restored to its exact original geometry](screenshots/phase17_restored.png)
+
+### Phase 18 — Boot-Time Cleanup & Diagnostics Mode
+
+**Full desktop, screendumped 3 seconds into boot** ([phase18.md](phase18.md), Milestone 18.1)
+Wallpaper, the "Files" icon, taskbar, and cursor are all fully rendered within the first few seconds — the old boot sequence would still be partway through a bouncing-rectangle animation at this point.
+
+![Desktop fully rendered within seconds of boot](screenshots/phase18_desktop_fast.png)
+
+**File Manager opened via a real simulated click, same fast boot** ([phase18.md](phase18.md), Milestone 18.1)
+A genuine mouse click on the Files icon, sent moments after boot starts, successfully opens the File Manager — proving the desktop isn't just visually rendered but fully interactive this early.
+
+![File Manager opened within seconds of boot](screenshots/phase18_fm_fast.png)
+
+### Phase 19 — User Mode, Syscalls & ELF Loader (Track C)
+
+**Desktop, moments after the ring3/syscall/ELF demo ran during the same boot** ([phase19.md](phase19.md), Milestones 19.1–19.3)
+Fully rendered and responsive — proof that dropping into ring 3, taking a syscall back, and running a real ELF binary doesn't leave the kernel's interrupt/scheduling state broken afterward.
+
+![Desktop fully working after the user-mode demo](screenshots/phase19_desktop_after.png)
+
+**File Manager listing the newly-bundled HELLO.ELF** ([phase19.md](phase19.md), Milestone 19.3)
+A real, separately-built-and-linked ELF64 binary (4,792 bytes) sitting on the FAT32 filesystem alongside the wallpaper and the persistence test file — not a synthetic in-memory fixture.
+
+![File Manager listing HELLO.ELF](screenshots/phase19_fm_after.png)
+
+### Phase 20 — Preemptive Multitasking & Process Management (Track C)
+
+**Desktop, moments after 8 processes ran under the scheduler during the same boot** ([phase20.md](phase20.md), Milestones 20.1–20.3)
+Fully rendered and responsive — proof that real preemptive multitasking (context switches, per-process page-table swaps, syscalls) doesn't leave the kernel's own interrupt/desktop state broken afterward.
+
+![Desktop fully working after the multitasking demo](screenshots/phase20_desktop.png)
+
+**File Manager listing every bundled multi-process test binary** ([phase20.md](phase20.md), Milestone 20.1)
+`SPIN1-5.ELF`, `CHILD.ELF`, and `PARENT.ELF` — real, separately-built ELF64 files on the FAT32 filesystem, not synthetic in-memory fixtures.
+
+![File Manager listing all Phase 20 test binaries](screenshots/phase20_fm.png)
+
+### Phase 21 — Window Resize & Alt+Tab (Track D)
+
+**Before resizing** ([phase21.md](phase21.md), Milestone 21.1)
+The File Manager at its default 420×260 size.
+
+![File Manager at default size](screenshots/phase21_before_resize.png)
+
+**Enlarged by dragging the bottom-right corner** ([phase21.md](phase21.md), Milestone 21.1)
+Dragged out to roughly 530×366 — the toolbar, breadcrumb, and file listing all re-layout cleanly at the new size.
+
+![File Manager enlarged via corner drag](screenshots/phase21_after_enlarge.png)
+
+**Shrunk back down** ([phase21.md](phase21.md), Milestone 21.1)
+The same corner dragged back inward — a clean shrink with no corruption.
+
+![File Manager shrunk back down](screenshots/phase21_after_shrink.png)
+
+**Clamped at the screen edge** ([phase21.md](phase21.md), Milestone 21.1)
+Dragged far past the bottom-right of the screen — clamps exactly to the screen width and the taskbar's top edge instead of wrapping or crashing.
+
+![Window resize clamped at the screen boundary](screenshots/phase21_edge_clamp.png)
+
+**Alt+Tab cycling through three windows, no mouse involved** ([phase21.md](phase21.md), Milestone 21.2)
+File Manager, an editor window, and a "New Folder" dialog all open; Alt+Tab brings each to front in turn (taskbar entry highlighted each time), visiting all three with no repeats.
+
+![Alt+Tab bringing a window to front](screenshots/phase21_alttab_1.png)
+
+### Phase 22 — RTC Driver, Taskbar Clock & Settings Persistence (Track D)
+
+**Taskbar clock, ten seconds apart** ([phase22.md](phase22.md), Milestone 22.2)
+Two screendumps taken exactly 10 real seconds apart (against a QEMU-controlled `-rtc` clock) — the taskbar clock advances from `14:22:04` to `14:22:14`, precisely matching the real elapsed time.
+
+![Taskbar clock before](screenshots/phase22_clock_before.png)
+![Taskbar clock ten seconds later](screenshots/phase22_clock_after.png)
+
+**F2 toggles the wallpaper** ([phase22.md](phase22.md), Milestone 22.3)
+The bundled BMP wallpaper, then the plain gradient after pressing F2 in the same session.
+
+![BMP wallpaper before F2](screenshots/phase22_before_toggle.png)
+![Gradient wallpaper after F2](screenshots/phase22_after_toggle.png)
+
+**File Manager moved and resized, then settings restored on a fresh boot** ([phase22.md](phase22.md), Milestone 22.3)
+Moved to (200,150) and resized to 500×300 in one session; in a completely separate, fresh QEMU process with no interaction at all, the wallpaper comes up as the gradient (no F2 press this time) and the File Manager opens directly at the exact persisted position and size — `GOS.CFG` itself now visible as a real file in the listing.
+
+![File Manager moved and resized](screenshots/phase22_final_state.png)
+![Fresh boot: gradient restored with no interaction](screenshots/phase22_restored_wallpaper.png)
+![Fresh boot: File Manager at persisted geometry](screenshots/phase22_restored_fm.png)
+
+### Phase 23 — FAT32 Long Filename (VFAT) Support (Track D)
+
+**Long filenames read correctly, including host-seeded ones** ([phase23.md](phase23.md), Milestone 23.1)
+A filename longer than 8.3 (`a much longer file name.txt`), seeded onto the disk image via host-side `mtools`/`mcopy`, displays in full in the File Manager — cross-checked against `mdir`'s own long-name output on the same image.
+
+![File Manager showing long filenames, including a host-seeded one](screenshots/phase23_lfn_read.png)
+
+**Long filenames created, renamed, and deleted through the real UI** ([phase23.md](phase23.md), Milestone 23.2)
+Typed into the New File dialog via simulated keystrokes, confirmed with a click on OK — the file appears in the listing immediately, no reboot involved; then renamed and deleted the same way. Every step was independently cross-checked via `mdir`/`mtype` on the raw disk image, confirming no orphaned short- or long-name entries were left behind.
+
+![New File dialog with a long name typed in](screenshots/phase23_typed.png)
+![File Manager showing the new long-named file immediately after creation](screenshots/phase23_created_via_ui.png)
+![The same file renamed to a different long name, in place](screenshots/phase23_rename_done.png)
+![The file deleted - gone from the listing with no orphaned entries](screenshots/phase23_delete_done.png)
+
+### Phase 24 — Shell, Calculator & Image Viewer (Track E)
+
+**Terminal: filesystem navigation and a real ring-3 process launch** ([phase24.md](phase24.md), Milestone 24.1)
+`ls`/`cd`/`ls` navigate the real FAT32 tree (shown here matching the File Manager's own listing behind it); `run Child.Elf` performs a genuine `process_spawn()` + blocking `scheduler_run_until_done()` launch and reports the exact exit code (7) the ELF returned via its own `SYS_EXIT`.
+
+![Terminal `ls` matching the File Manager's listing](screenshots/phase24_ls.png)
+![Terminal `cd Testdir` then `ls` showing the nested file](screenshots/phase24_cd_ls.png)
+![Terminal `run Child.Elf` reporting the exact exit code 7](screenshots/phase24_run_child.png)
+
+**Calculator: the milestone's own test sequence** ([phase24.md](phase24.md), Milestone 24.2)
+Clicking "1", "2", "+", "7", "=" produces `19`; clicking "C" clears back to `0`.
+
+![Calculator freshly opened](screenshots/phase24_debug_calc.png)
+![Calculator showing 19 after 1, 2, +, 7, =](screenshots/phase24_calc_19.png)
+![Calculator cleared back to 0](screenshots/phase24_calc_cleared.png)
+
+**Image Viewer: opened via a real File Manager double-click** ([phase24.md](phase24.md), Milestone 24.3)
+Double-clicking `WALLPAPR.BMP` opens it in a new window at native resolution, reusing Milestone 15.3's BMP decoder (now shared via `bmp.c`) - pixel-verified byte-for-byte against the source file via an independent Python decode.
+
+![Image Viewer showing the bundled wallpaper BMP](screenshots/phase24_debug_imgviewer.png)
+
+### Patch v2 — Desktop Wallpaper Picker, Taskbar Clock Margin & Wallpaper Mapping Fix
+
+**A discoverable, 5-option wallpaper picker** ([phase-patchv2.md](phase-patchv2.md), Rounds 1-2)
+Right-clicking the desktop opens a menu listing Gradient, Default, and 3 more images (originally provided as JPEG - converted to gOS's supported BMP format, since there's no JPEG decoder) - replacing a previously hidden F2-only toggle. The current selection is highlighted and persisted across reboots.
+
+![Wallpaper picker menu with all 5 options](screenshots/phase-patchv2_menu_5options.png)
+![A completely fresh boot defaulting to the bundled wallpaper](screenshots/phase-patchv2_default_boot.png)
+
+**Taskbar clock margin fixed** ([phase-patchv2.md](phase-patchv2.md), Round 3)
+The clock's display box was previously narrower than its own text, with too small a right margin - together making it look like it touched the screen's corner.
+
+![Taskbar clock with proper right margin](screenshots/phase-patchv2_clock_margin.png)
+
+**Mac/Custom wallpaper mapping fixed** ([phase-patchv2.md](phase-patchv2.md), Round 4)
+The "Mac" and "Custom" menu options had ended up pointing at each other's image - fixed so each label now shows the correct one.
+
+![Custom now showing the correct (portrait) image](screenshots/phase-patchv2_custom_correct.png)
+![Mac now showing the correct (abstract) image](screenshots/phase-patchv2_mac_correct.png)
+![Windows showing the classic Bliss-style wallpaper, unaffected by the swap](screenshots/phase-patchv2_windows_correct.png)
+
 ---
 
 ## Project structure
@@ -321,6 +537,21 @@ phase12.md           Track A, Phase 1: 5 Critical audit fixes
 phase13.md           Track A, Phase 2: 6 High-severity audit fixes
 phase14.md           Track A, Phase 3: 12 Medium/Low audit fixes (Track A now complete)
 phase15.md           Track B, Phase 1: real arrow cursor + gradient/BMP wallpaper
+phase16.md           Track B, Phase 2: window minimize + persistent taskbar restore/focus
+phase17.md           Track B, Phase 3: window maximize/restore (Track B now complete)
+phase18.md           v2 (Track C-prep): boot-time cleanup (~75-80s -> ~1s default boot) + `make diagnostic`
+phase19.md           v2 Track C, Phase 1: ring 3 + syscalls (int 0x80) + a minimal ELF64 loader
+phase20.md           v2 Track C, Phase 2: preemptive multitasking, per-process page tables,
+                      spawn/exit/waitpid syscalls
+phase21.md           v2 Track D, Phase 1: window drag-to-resize + Alt+Tab switching
+phase22.md           v2 Track D, Phase 2: CMOS RTC + taskbar clock + GOS.CFG settings persistence
+phase23.md           v2 Track D, Phase 3: FAT32 long filename (VFAT) read/write support (Track D now complete)
+phase24.md           v2 Track E: kernel-mode Terminal (real ring-3 spawn), Calculator, Image Viewer (Track E now complete)
+phase-patchv2.md     Post-Phase-24 patch: desktop wallpaper picker (5 options), taskbar clock margin fix,
+                      Mac/Custom wallpaper mapping fix
+tools/userland/      standalone user-mode test programs (ring3_test.asm, hello.asm/user.ld,
+                      spinner.asm/child.asm/parent.asm/proc.ld) - built independently of the
+                      kernel, no libc/crt0
 version1/            all v1.0 planning/completion docs, moved here after v2 planning began
   PROJECT_PLAN.md     the full phase-by-phase roadmap and status tracker
   phase0.md ... phase11.md   detailed completion report for each finished phase
@@ -335,6 +566,13 @@ version1/            all v1.0 planning/completion docs, moved here after v2 plan
 - [project-plan-2.md](project-plan-2.md) — the current v2 plan: audit remediation (Track A) followed by new features (Track B), with a full status tracker
 - [phase12.md](phase12.md), [phase13.md](phase13.md), [phase14.md](phase14.md) — Track A's three phases: every one of the 24 audit findings, each with the fix, a live QEMU reproduction of the original bug (before/after), and exact commands to reproduce every test
 - [phase15.md](phase15.md) — Track B's first phase: the real arrow cursor, gradient wallpaper, and BMP wallpaper loader, each with a "command to test" and a "command to see", plus an independent host-side pixel cross-check against the source BMP
+- [phase16.md](phase16.md) — Track B's second phase: window minimize and taskbar restore/focus, each with a "command to test" and a "command to see", a real heap-leak regression measurement for window teardown, and a documented test-script bug (not a kernel bug) found while verifying dynamic taskbar reordering
+- [phase17.md](phase17.md) — Track B's third and final phase: window maximize/restore, with an exact geometry round-trip proven both numerically (a debug build logging x/y/w/h at each step) and visually — Track B is complete as of this phase
+- [phase18.md](phase18.md) — cuts the default boot from ~75-80s to ~1s by gating the old regression-demo/stress-test sequence behind a new `make diagnostic` build, with the PIT tick count used to measure the improvement and a log-diff proving zero loss of test coverage
+- [phase19.md](phase19.md) — Track C's first phase: ring 3 execution, an `int 0x80` syscall gate, and a minimal ELF64 loader running a real bundled binary, including a full symptom/diagnosis/fix writeup for a genuine VMM bug (page-table `PAGE_USER` bit not propagating to already-existing intermediate entries) found while testing the very first user-mode mapping
+- [phase20.md](phase20.md) — Track C's second phase: a real preemptive scheduler with per-process page-table isolation, `spawn`/`exit`/`waitpid` syscalls, and a 5-process fairness test, including two documented bugs found during testing (a NASM label/register-name collision, and an initial test workload too fast to actually trigger preemption)
+- [phase21.md](phase21.md) — Track D's first phase: drag-to-resize windows (with min-size and screen-edge clamping) and Alt+Tab switching, including a documented design bug (the first focus-cycling algorithm only ever toggled between 2 windows) caught by hand-tracing the logic before ever booting it
+- [phase22.md](phase22.md) — Track D's second phase: a CMOS RTC driver, a live taskbar clock (verified against a QEMU-controlled clock), and `GOS.CFG` settings persistence (wallpaper mode + File Manager geometry) cross-checked byte-for-byte via `xxd` and confirmed end-to-end across a genuinely fresh QEMU process
 - [version1/PROJECT_PLAN.md](version1/PROJECT_PLAN.md) — full v1.0 project scope, phase breakdown, dependency graph, and status tracker
 - `version1/phase0.md` through `version1/phase11.md` — one detailed write-up per completed v1.0 phase: what was built, exact commands to reproduce every test, and any real bugs found (with symptom/diagnosis/fix)
 - [version1/phase-patch.md](version1/phase-patch.md) — the post-v1.0 patch: diagnosis and fix for a real desktop-hang bug, plus the unlabeled-button UX fix

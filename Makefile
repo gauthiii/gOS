@@ -29,7 +29,7 @@ ASM_SOURCES := $(shell find $(KERNEL_DIR)/src -name '*.asm' 2>/dev/null)
 OBJS := $(C_SOURCES:$(KERNEL_DIR)/src/%.c=$(BUILD_DIR)/obj/%.c.o) \
         $(ASM_SOURCES:$(KERNEL_DIR)/src/%.asm=$(BUILD_DIR)/obj/%.asm.o)
 
-.PHONY: all build iso run debug clean disk
+.PHONY: all build iso run debug clean disk diagnostic
 
 all: build
 
@@ -42,6 +42,17 @@ $(BUILD_DIR)/obj/%.c.o: $(KERNEL_DIR)/src/%.c
 $(BUILD_DIR)/obj/%.asm.o: $(KERNEL_DIR)/src/%.asm
 	@mkdir -p $(dir $@)
 	$(NASM) -f elf64 $< -o $@
+
+# Milestone 19.1: ring3_test_blob.asm incbin's build/ring3_test.bin, so it
+# needs that flat binary to exist first - a dependency the generic %.asm.o
+# rule above can't express (incbin isn't visible to make).
+$(BUILD_DIR)/obj/ring3_test_blob.asm.o: $(KERNEL_DIR)/src/ring3_test_blob.asm $(BUILD_DIR)/ring3_test.bin
+	@mkdir -p $(dir $@)
+	$(NASM) -f elf64 $< -o $@
+
+$(BUILD_DIR)/ring3_test.bin: tools/userland/ring3_test.asm
+	@mkdir -p $(BUILD_DIR)
+	$(NASM) -f bin $< -o $@
 
 $(KERNEL_ELF): $(OBJS) $(KERNEL_DIR)/linker.ld
 	@mkdir -p $(BUILD_DIR)
@@ -81,7 +92,28 @@ iso: build
 # image (WALLPAPR.BMP in the root, 8.3 name matching the FAT32 driver).
 # Changing this line changes DISK_RECIPE_HASH, so existing images rebuild
 # once (per Finding #21's mechanism) and pick up the wallpaper.
-DISK_RECIPE := truncate -s 64M $(DISK_IMG) && mformat -F -i $(DISK_IMG) -v GOSDISK :: && mcopy -i $(DISK_IMG) tools/wallpaper.bmp ::WALLPAPR.BMP
+# Milestone 19.3: also bundles the real user-mode ELF64 test binary
+# (HELLO.ELF), read and executed by usermode_run_elf() at boot under
+# GOS_TEST_USERMODE.
+# Milestone 20.1/20.2: also bundles the Phase 20 multi-process test
+# binaries (SPIN1-5.ELF, CHILD.ELF, PARENT.ELF), read and run by
+# process_spawn() under GOS_TEST_MULTITASKING.
+PROC_BINS := tools/userland/spin1.elf tools/userland/spin2.elf tools/userland/spin3.elf \
+             tools/userland/spin4.elf tools/userland/spin5.elf \
+             tools/userland/child.elf tools/userland/parent.elf
+DISK_RECIPE := truncate -s 64M $(DISK_IMG) && mformat -F -i $(DISK_IMG) -v GOSDISK :: && \
+	mcopy -i $(DISK_IMG) tools/wallpaper.bmp ::WALLPAPR.BMP && \
+	mcopy -i $(DISK_IMG) tools/custom.bmp ::CUSTOM.BMP && \
+	mcopy -i $(DISK_IMG) tools/mac.bmp ::MAC.BMP && \
+	mcopy -i $(DISK_IMG) tools/windows.bmp ::WINDOWS.BMP && \
+	mcopy -i $(DISK_IMG) tools/userland/hello.elf ::HELLO.ELF && \
+	mcopy -i $(DISK_IMG) tools/userland/spin1.elf ::SPIN1.ELF && \
+	mcopy -i $(DISK_IMG) tools/userland/spin2.elf ::SPIN2.ELF && \
+	mcopy -i $(DISK_IMG) tools/userland/spin3.elf ::SPIN3.ELF && \
+	mcopy -i $(DISK_IMG) tools/userland/spin4.elf ::SPIN4.ELF && \
+	mcopy -i $(DISK_IMG) tools/userland/spin5.elf ::SPIN5.ELF && \
+	mcopy -i $(DISK_IMG) tools/userland/child.elf ::CHILD.ELF && \
+	mcopy -i $(DISK_IMG) tools/userland/parent.elf ::PARENT.ELF
 DISK_RECIPE_HASH := $(shell echo "$(DISK_RECIPE)" | shasum -a 256 | cut -d' ' -f1)
 DISK_HASH_FILE := disk_images/.disk_recipe_hash
 
@@ -96,12 +128,45 @@ check-disk-recipe:
 		rm -f $(DISK_IMG); \
 	fi
 
-$(DISK_IMG): tools/wallpaper.bmp
+$(DISK_IMG): tools/wallpaper.bmp tools/custom.bmp tools/mac.bmp tools/windows.bmp tools/userland/hello.elf $(PROC_BINS)
 	@mkdir -p disk_images
 	$(DISK_RECIPE)
 
 tools/wallpaper.bmp: tools/make_wallpaper.py
 	python3 tools/make_wallpaper.py
+
+# Milestone 19.3: the bundled user-mode ELF64 test binary. Assembled and
+# linked entirely independently of the kernel build (no libc, no crt0,
+# just nasm + a raw linker script) - see tools/userland/hello.asm and
+# tools/userland/user.ld.
+tools/userland/hello.elf: tools/userland/hello.asm tools/userland/user.ld
+	@mkdir -p $(BUILD_DIR)
+	$(NASM) -f elf64 tools/userland/hello.asm -o $(BUILD_DIR)/userland_hello.o
+	$(LD) -T tools/userland/user.ld -nostdlib -static -no-pie -z max-page-size=0x1000 \
+		$(BUILD_DIR)/userland_hello.o -o $@
+
+# Milestone 20.1/20.3: five copies of spinner.asm, each with a distinct
+# marker character/iteration count baked in at assemble time (-D), used to
+# prove real preemptive interleaving (20.1: 2 processes) and scheduler
+# fairness under load (20.3: all 5 at once).
+tools/userland/spin%.elf: tools/userland/spinner.asm tools/userland/proc.ld
+	@mkdir -p $(BUILD_DIR)
+	$(NASM) -f elf64 -DMARKER="'$*'" -DITERS=20 tools/userland/spinner.asm -o $(BUILD_DIR)/userland_spin$*.o
+	$(LD) -T tools/userland/proc.ld -nostdlib -static -no-pie -z max-page-size=0x1000 \
+		$(BUILD_DIR)/userland_spin$*.o -o $@
+
+# Milestone 20.2: parent/child spawn+waitpid test pair.
+tools/userland/child.elf: tools/userland/child.asm tools/userland/proc.ld
+	@mkdir -p $(BUILD_DIR)
+	$(NASM) -f elf64 tools/userland/child.asm -o $(BUILD_DIR)/userland_child.o
+	$(LD) -T tools/userland/proc.ld -nostdlib -static -no-pie -z max-page-size=0x1000 \
+		$(BUILD_DIR)/userland_child.o -o $@
+
+tools/userland/parent.elf: tools/userland/parent.asm tools/userland/proc.ld
+	@mkdir -p $(BUILD_DIR)
+	$(NASM) -f elf64 tools/userland/parent.asm -o $(BUILD_DIR)/userland_parent.o
+	$(LD) -T tools/userland/proc.ld -nostdlib -static -no-pie -z max-page-size=0x1000 \
+		$(BUILD_DIR)/userland_parent.o -o $@
 
 run: iso disk $(BUILD_DIR)/OVMF_VARS.fd
 	qemu-system-x86_64 \
@@ -131,3 +196,24 @@ debug: iso $(BUILD_DIR)/OVMF_VARS.fd disk
 
 clean:
 	rm -rf $(BUILD_DIR)
+
+# Phase 18 (Milestone 18.2): rebuilds with GOS_DIAGNOSTIC_BOOT defined,
+# restoring the full pre-Phase-18 boot sequence (bouncing-rectangle
+# animation, "Hello, gOS!" hold, mouse test window, full 2000ms timer
+# self-test, and the file/window stress test) for regression testing.
+# `make run`/`make build` no longer define this flag, so their object files
+# aren't diagnostic-flag-tagged - `clean` first here avoids silently
+# linking a mix of diagnostic and non-diagnostic .o files (the same class
+# of staleness hazard Finding #21 fixed for the disk image).
+diagnostic: clean
+	$(MAKE) iso CFLAGS="$(CFLAGS) -DGOS_DIAGNOSTIC_BOOT"
+	$(MAKE) disk $(BUILD_DIR)/OVMF_VARS.fd
+	qemu-system-x86_64 \
+		-M q35 -m 256M \
+		-drive if=pflash,format=raw,unit=0,file=$(OVMF_DIR)/OVMF_CODE.fd,readonly=on \
+		-drive if=pflash,format=raw,unit=1,file=$(BUILD_DIR)/OVMF_VARS.fd \
+		-cdrom $(ISO_IMAGE) \
+		-device piix3-ide,id=ide \
+		-drive id=gosdisk,file=$(DISK_IMG),if=none,format=raw \
+		-device ide-hd,drive=gosdisk,bus=ide.0 \
+		-serial stdio

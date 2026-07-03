@@ -9,6 +9,12 @@ void *kmalloc(size_t size);
 void kfree(void *ptr);
 uint64_t heap_corruption_count(void);
 
+/* Sums the payload size of every free block in address order (walking the
+ * same singly-linked list kmalloc/kfree maintain). Used by regression tests
+ * (Milestone 16.1) to prove a repeated allocate/free cycle returns to its
+ * original baseline instead of leaking. */
+uint64_t heap_free_bytes(void);
+
 /* Stress-tests kmalloc/kfree with a mix of small/large blocks, verifies
  * write/read integrity, and deliberately corrupts one buffer's footer to
  * confirm the canary/guard actually detects overruns (not just that it

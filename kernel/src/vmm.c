@@ -25,21 +25,69 @@ static uint64_t *table_get_or_create(uint64_t *table, uint64_t index, uint64_t f
             new_table_virt[i] = 0;
         }
         table[index] = new_table_phys | PAGE_PRESENT | PAGE_WRITABLE | (flags & PAGE_USER);
+    } else if ((flags & PAGE_USER) && !(table[index] & PAGE_USER)) {
+        /* Milestone 19.1 bug fix: the U/S bit is enforced at EVERY page
+         * table level, not just the leaf PTE - a user-accessible leaf
+         * mapping is silently blocked if any PML4/PDPT/PD entry above it
+         * lacks PAGE_USER. An intermediate entry created earlier by a
+         * kernel-only mapping that happens to share the same 512GB/1GB/
+         * 2MB region (e.g. vmm_init()'s own identity map, which covers
+         * the low 4GiB - including where Phase 19's first user-mode
+         * mapping landed - with PAGE_WRITABLE only, no PAGE_USER) would
+         * otherwise never get PAGE_USER retroactively, since the
+         * `!(table[index] & PAGE_PRESENT)` branch above only runs once,
+         * at first creation. OR it in here instead. This does NOT expose
+         * the kernel's own sibling mappings under the same intermediate
+         * table to user access - their own PT-level leaf entries still
+         * lack PAGE_USER independently; only the specific new leaf
+         * mapping this call is for gains access, once its own PTE is
+         * written with PAGE_USER too. */
+        table[index] |= PAGE_USER;
     }
     return phys_to_virt(table[index] & ADDR_MASK);
 }
 
-void vmm_map_page(uint64_t virt, uint64_t phys, uint64_t flags) {
+static void map_page_in_table(uint64_t *pml4, uint64_t virt, uint64_t phys, uint64_t flags) {
     uint64_t pml4_i = (virt >> 39) & 0x1FF;
     uint64_t pdpt_i = (virt >> 30) & 0x1FF;
     uint64_t pd_i   = (virt >> 21) & 0x1FF;
     uint64_t pt_i   = (virt >> 12) & 0x1FF;
 
-    uint64_t *pdpt = table_get_or_create(pml4_virt, pml4_i, flags);
+    uint64_t *pdpt = table_get_or_create(pml4, pml4_i, flags);
     uint64_t *pd = table_get_or_create(pdpt, pdpt_i, flags);
     uint64_t *pt = table_get_or_create(pd, pd_i, flags);
 
     pt[pt_i] = (phys & ADDR_MASK) | flags | PAGE_PRESENT;
+}
+
+void vmm_map_page(uint64_t virt, uint64_t phys, uint64_t flags) {
+    map_page_in_table(pml4_virt, virt, phys, flags);
+}
+
+/* Milestone 20.1: maps a page into an arbitrary (non-global) PML4, for
+ * per-process address spaces created by vmm_create_process_pml4(). */
+void vmm_map_page_in(uint64_t target_pml4_phys, uint64_t virt, uint64_t phys, uint64_t flags) {
+    map_page_in_table(phys_to_virt(target_pml4_phys), virt, phys, flags);
+}
+
+/* Milestone 20.1: allocates a fresh PML4 and shallow-copies the kernel's
+ * own top-level entries into it (same physical PDPT pointers, not deep
+ * copies) - every process's address space resolves the kernel's identity
+ * map, HHDM, and higher-half mappings identically, since that's shared,
+ * trusted code/data every process needs (syscall entry, the scheduler
+ * itself, etc). Process-private mappings (an ELF's segments, its stack)
+ * must go in a PML4 slot NOT shared with the kernel - kernel/include/
+ * process.h's PROC_LOAD_BASE/PROC_STACK_BASE constants deliberately live
+ * under PML4 index 1, which vmm_init() never touches, so a fresh PDPT
+ * chain gets created there per-process on first use instead of aliasing
+ * another process's (or the kernel's) tables. */
+uint64_t vmm_create_process_pml4(void) {
+    uint64_t new_phys = pmm_alloc_page();
+    uint64_t *new_virt = phys_to_virt(new_phys);
+    for (int i = 0; i < ENTRIES_PER_TABLE; i++) {
+        new_virt[i] = pml4_virt[i];
+    }
+    return new_phys;
 }
 
 /* Walks the page tables for `virt` without creating any missing levels

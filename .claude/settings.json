@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep \"FM:\" /var/folders/jj/0qyq4l9j7rq4gc_0dkxyglpr0000gn/T/tmp.*/serial.log 2>/dev/null | tail -5 *)",
+      "Read(//private/var/folders/jj/0qyq4l9j7rq4gc_0dkxyglpr0000gn/T/**)",
+      "Bash(mmd -i disk_images/gos_disk.img ::TESTDIR)",
+      "Bash(mcopy -i disk_images/gos_disk.img /tmp/nested.txt ::TESTDIR/NESTED.TXT)",
+      "Bash(mdir -i disk_images/gos_disk.img ::TESTDIR)",
+      "Bash(ls -la tools/*.jpg tools/*.jpeg)",
+      "Bash(file tools/*.jpg)",
+      "Bash(xxd -l 40 tools/wallpaper.bmp)",
+      "Bash(python3 -c \"import PIL; print\\(PIL.__version__\\)\")",
+      "Bash(xxd -l 40 tools/custom.bmp)",
+      "Bash(xxd -l 40 tools/mac.bmp)",
+      "Bash(xxd -l 40 tools/windows.bmp)",
+      "Bash(tail -20 /var/folders/jj/0qyq4l9j7rq4gc_0dkxyglpr0000gn/T/tmp.*/serial.log 2>/dev/null | tail -20)",
+      "Bash(mv screenshots/phase24c_menu_5options.png screenshots/phase-patchv2_menu_5options.png)",
+      "Bash(mv screenshots/phase_patchv2_custom_swapped.png screenshots/phase-patchv2_custom_correct.png)",
+      "Bash(mv screenshots/phase_patchv2_mac_swapped.png screenshots/phase-patchv2_mac_correct.png)",
+      "Bash(mv screenshots/phase24c_mac_selected.png screenshots/phase-patchv2_windows_correct.png)",
+      "Bash(mv screenshots/phase24b_default_boot_bmp.png screenshots/phase-patchv2_default_boot.png)",
+      "Bash(grep -n \"^## 6. Status Tracker\\\\|^## 7\\\\|^---$\" project-plan-2.md)",
+      "Bash(git status *)",
+      "Bash(git ls-files *)"
+    ]
+  }
+}

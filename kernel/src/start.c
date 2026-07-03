@@ -19,6 +19,14 @@
 #include <desktop.h>
 #include <taskbar.h>
 #include <wallpaper.h>
+#include <usermode.h>
+#include <settings.h>
+#include <rtc.h>
+#include <syscall.h>
+#include <process.h>
+#include <terminal.h>
+#include <calculator.h>
+#include <imageviewer.h>
 
 extern uint8_t __kernel_virt_start[];
 extern uint8_t __kernel_virt_end[];
@@ -367,7 +375,37 @@ void _start(void) {
     heap_init();
     heap_self_test();
 
+#if defined(GOS_DIAGNOSTIC_BOOT)
+    /* Milestone 18.1: the full timer self-test deliberately sleeps 2000ms
+     * to measure real elapsed ticks - a genuine correctness check, but not
+     * something a normal boot needs to pay for every single time. Gated
+     * behind the same diagnostic flag as the other regression demos below;
+     * the default path just confirms the PIT is ticking at all (no sleep). */
     timer_self_test();
+#else
+    serial_write_string("Timer: PIT running (tick=");
+    serial_write_uint(timer_get_ticks());
+    serial_write_string(") - full 2000ms self-test skipped (define GOS_DIAGNOSTIC_BOOT to run it)\n");
+#endif
+
+#if defined(GOS_TEST_USERMODE)
+    /* Milestone 19.1/19.2: run the tiny hand-assembled ring3 test blob -
+     * proves the GDT user segments + TSS.rsp0 wiring and the int 0x80
+     * syscall gate both work, before the ELF loader (Milestone 19.3,
+     * tested separately below once FAT32 is up) adds any more moving
+     * parts. Placed here (after heap/PMM/VMM are all live, before
+     * keyboard/ATA/FAT32) since it only needs the VMM's page-mapping API
+     * and the syscall gate, both already initialized by this point. */
+    serial_write_string("TEST: running Milestone 19.1/19.2 ring3 test blob...\n");
+    int ring3_ok = usermode_run_ring3_test();
+    serial_write_string("TEST: usermode_run_ring3_test() = ");
+    serial_write_string(ring3_ok ? "1 (OK)" : "0 (FAILED)");
+    serial_write_string("\n");
+    serial_write_string("TEST: syscall_last_caller_cs() = 0x");
+    serial_write_hex64(syscall_last_caller_cs());
+    serial_write_string(syscall_last_caller_cs() & 3 ? " (RPL=3 - genuinely called from ring 3)\n"
+                                                       : " (RPL != 3 - BUG, not actually ring 3)\n");
+#endif
 
     keyboard_init();
     serial_write_string("Keyboard driver initialized (IRQ1 unmasked)\n");
@@ -640,6 +678,62 @@ void _start(void) {
         serial_write_string(grow_cleanup_ok ? "1 (all 20 deleted OK)" : "0 (FAILED)");
         serial_write_string("\n");
 #endif
+#if defined(GOS_TEST_USERMODE)
+        /* Milestone 19.3: load and run the real, separately-built ELF64
+         * binary bundled on the disk image (tools/userland/hello.asm,
+         * linked to a fixed address distinct from the 19.1 blob's) -
+         * proves the loader itself, not just the ring3/syscall mechanics
+         * the 19.1/19.2 test above already covers. */
+        serial_write_string("TEST: running Milestone 19.3 ELF loader test (HELLO.ELF)...\n");
+        int elf_ok = usermode_run_elf("HELLO.ELF");
+        serial_write_string("TEST: usermode_run_elf(\"HELLO.ELF\") = ");
+        serial_write_string(elf_ok ? "1 (OK)" : "0 (FAILED)");
+        serial_write_string("\n");
+#endif
+#if defined(GOS_TEST_MULTITASKING)
+        /* Milestone 20.1: spawn two independent processes (their own
+         * private page tables, own kernel stacks) and let the timer-driven
+         * scheduler run them to completion - each writes its own marker
+         * character with a spin delay in between, so a genuinely
+         * interleaved serial log (not two runs back-to-back) is direct
+         * proof of real preemption. */
+        process_init();
+        serial_write_string("TEST: Milestone 20.1 - spawning SPIN1.ELF and SPIN2.ELF...\n");
+        int spin1 = process_spawn("SPIN1.ELF");
+        int spin2 = process_spawn("SPIN2.ELF");
+        serial_write_string("TEST: spin1=");
+        serial_write_uint((uint64_t)(spin1 < 0 ? 0xFFFFFFFF : (uint64_t)spin1));
+        serial_write_string(" spin2=");
+        serial_write_uint((uint64_t)(spin2 < 0 ? 0xFFFFFFFF : (uint64_t)spin2));
+        serial_write_string("\n");
+        scheduler_run_until_done();
+        serial_write_string("TEST: Milestone 20.1 complete\n");
+
+        /* Milestone 20.2: parent spawns a child, polls SYS_WAITPID until
+         * the child's exit code (7) comes back - proves the process
+         * lifecycle syscalls (spawn/exit/waitpid) round-trip correctly. */
+        serial_write_string("TEST: Milestone 20.2 - spawning PARENT.ELF (spawns CHILD.ELF itself)...\n");
+        int parent_pid = process_spawn("PARENT.ELF");
+        serial_write_string("TEST: parent_pid=");
+        serial_write_uint((uint64_t)(parent_pid < 0 ? 0xFFFFFFFF : (uint64_t)parent_pid));
+        serial_write_string("\n");
+        scheduler_run_until_done();
+        serial_write_string("TEST: Milestone 20.2 complete\n");
+
+        /* Milestone 20.3: 5 concurrent processes under load - confirm none
+         * starve (every marker appears the full ITERS times) and, right
+         * after, that the desktop's own main loop is still fully alive and
+         * interactive (proven the same way Phase 19 proved it: a real
+         * simulated click reaching the File Manager after this demo). */
+        serial_write_string("TEST: Milestone 20.3 - spawning 5 concurrent processes...\n");
+        process_spawn("SPIN1.ELF");
+        process_spawn("SPIN2.ELF");
+        process_spawn("SPIN3.ELF");
+        process_spawn("SPIN4.ELF");
+        process_spawn("SPIN5.ELF");
+        scheduler_run_until_done();
+        serial_write_string("TEST: Milestone 20.3 complete\n");
+#endif
     } else {
         serial_write_string("FAT32: PANIC - not a valid FAT32 filesystem\n");
         hcf(); /* BPB globals were never populated - any further FAT32 call
@@ -716,6 +810,11 @@ void _start(void) {
         serial_write_string(free_before == free_after ? " (unchanged - no double allocation)\n" : " (BUG - second call allocated more memory)\n");
     }
 #endif
+#if defined(GOS_DIAGNOSTIC_BOOT)
+    /* Milestone 18.1: this ~2-second bouncing-rectangle animation (Milestone
+     * 5.3's original tearing/double-buffer proof) is a one-time regression
+     * demo, not something a normal boot needs to redraw every time - gated
+     * behind GOS_DIAGNOSTIC_BOOT along with the other slow demos below. */
     int64_t box_x = 0;
     int64_t box_dx = 20;
     const int64_t box_w = 80, box_h = 80;
@@ -743,14 +842,19 @@ void _start(void) {
     fb_flip();
     serial_write_string("FB: \"Hello, gOS!\" rendered via bitmap font\n");
     sleep_ms(2000);
+#endif
 
     mouse_init();
 
+#if defined(GOS_DIAGNOSTIC_BOOT)
     /* Milestone 6.1 live test: redraw the cursor at its current tracked
      * position for ~5 seconds (100 frames @ 50ms), logging whenever it
      * moves. Real movement is injected externally via the QEMU monitor's
      * `mouse_move`/`mouse_button` commands during this window - see
-     * version1/phase6.md for the exact test procedure. */
+     * version1/phase6.md for the exact test procedure. Milestone 18.1:
+     * gated behind GOS_DIAGNOSTIC_BOOT - the main desktop loop already
+     * redraws the cursor every frame, so this demo's only purpose is the
+     * standalone regression proof, not anything a normal boot needs. */
     {
         int64_t last_x = -1, last_y = -1;
         uint8_t last_buttons = 0xFF;
@@ -775,6 +879,7 @@ void _start(void) {
         }
     }
     serial_write_string("Mouse test window complete\n");
+#endif
 
     /* Milestones 6.2/6.3/6.4: two overlapping windows (proving z-order and
      * click-to-focus), one draggable by its title bar, one with a button
@@ -785,7 +890,17 @@ void _start(void) {
      * seconds via QEMU monitor mouse_move/mouse_button commands - see
      * version1/phase6.md for the exact test procedure. */
     window_system_init();
+#if defined(GOS_DIAGNOSTIC_BOOT)
+    /* Milestone 18.1: this is by far the single biggest contributor to
+     * pre-Phase-18 boot time - 150 file create/write/rename/delete cycles
+     * plus 300 window create/close cycles, each involving real ATA PIO
+     * I/O. Genuinely valuable as a regression/soak test (see Milestone
+     * 11.1), but not something a normal interactive boot should pay for
+     * every single time. */
     stress_test();
+#else
+    (void)stress_test; /* silence "defined but not used" - still referenced under GOS_DIAGNOSTIC_BOOT */
+#endif
     int win_a = window_create(150, 150, 300, 200, fb_make_color(70, 70, 200), fb_make_color(30, 30, 60), "Window A");
     int win_b = window_create(400, 250, 280, 180, fb_make_color(200, 70, 70), fb_make_color(60, 30, 30), "Window B");
     int win_c = window_create(280, 350, 260, 160, fb_make_color(70, 200, 120), fb_make_color(30, 60, 40), "Text Editor");
@@ -836,6 +951,234 @@ void _start(void) {
      * gradient (Milestone 15.2) if missing or malformed. */
     wallpaper_init();
 
+    /* Milestone 22.3: load persisted settings (wallpaper selection, File
+     * Manager geometry) - after wallpaper_init() so a persisted wallpaper
+     * selection correctly overrides whatever wallpaper_init() just decided,
+     * and before the desktop loop below ever creates the File Manager or
+     * renders a frame. */
+    settings_load();
+
+#if defined(GOS_TEST_RTC)
+    /* Milestone 22.1: log the parsed date/time directly, so a host script
+     * can diff it against the exact value QEMU's `-rtc base=...` flag was
+     * told to present - independent proof the BCD/12-hour/update-in-
+     * progress handling is all correct, not just "some plausible-looking
+     * numbers came out". */
+    {
+        struct rtc_time t;
+        rtc_read(&t);
+        serial_write_string("TEST: RTC read - ");
+        serial_write_uint(t.year);
+        serial_write_string("-");
+        serial_write_uint(t.month);
+        serial_write_string("-");
+        serial_write_uint(t.day);
+        serial_write_string(" ");
+        serial_write_uint(t.hour);
+        serial_write_string(":");
+        serial_write_uint(t.min);
+        serial_write_string(":");
+        serial_write_uint(t.sec);
+        serial_write_string("\n");
+    }
+#endif
+
+#if defined(GOS_TEST_LFN)
+    /* Milestone 23.1/23.2: list the root directory and print every entry's
+     * (possibly long, VFAT-reconstructed) name, so a host script can grep
+     * for the exact long name it seeded/created rather than trusting the
+     * File Manager's own rendering of it. */
+    {
+        struct fat_dirent entries[FAT32_MAX_DIRENTS];
+        int count = fat_list_dir(fat32_root_cluster(), entries, FAT32_MAX_DIRENTS);
+        serial_write_string("TEST: LFN root listing (");
+        serial_write_uint((uint64_t)count);
+        serial_write_string(" entries)\n");
+        for (int i = 0; i < count; i++) {
+            serial_write_string("TEST: LFN entry [");
+            serial_write_string(entries[i].name);
+            serial_write_string("]\n");
+        }
+    }
+#endif
+
+#if defined(GOS_TEST_LFN_WRITE)
+    /* Milestone 23.2: exercise create/write/rename/delete with long names
+     * directly (independent of the File Manager UI), leaving the final
+     * renamed file on disk so a host script can cross-check it via mdir
+     * after this boot exits. */
+    {
+        const char *long_name = "a freshly created long filename.txt";
+        const char *renamed = "a renamed long filename.txt";
+        const char *msg = "written by gOS LFN write test";
+        int created = fat_create_file(long_name);
+        serial_write_string("TEST: fat_create_file(long) = ");
+        serial_write_string(created ? "OK" : "FAIL");
+        serial_write_string("\n");
+        if (created) {
+            int wrote = fat_write_file(long_name, (const uint8_t *)msg, 30);
+            serial_write_string("TEST: fat_write_file(long) = ");
+            serial_write_string(wrote ? "OK" : "FAIL");
+            serial_write_string("\n");
+            int renamed_ok = fat_rename(long_name, renamed);
+            serial_write_string("TEST: fat_rename(long->long) = ");
+            serial_write_string(renamed_ok ? "OK" : "FAIL");
+            serial_write_string("\n");
+        }
+    }
+#endif
+
+#if defined(GOS_TEST_APPS)
+    /* Milestone 24.1/24.2/24.3: repeated open/close of the Terminal,
+     * Calculator, and Image Viewer, checking heap_free_bytes() before and
+     * after - proves (a) the singleton close-callback reset actually lets
+     * terminal_open()/calculator_open() create a fresh window instead of
+     * silently no-op'ing on a stale index after the first close, and (b)
+     * the Image Viewer's on_close callback frees its kmalloc'd decoded
+     * pixel buffer, so opening/closing it repeatedly doesn't leak. */
+    {
+        uint64_t baseline = heap_free_bytes();
+        serial_write_string("TEST: heap_free_bytes() baseline = ");
+        serial_write_uint(baseline);
+        serial_write_string("\n");
+
+        for (int i = 0; i < 5; i++) {
+            terminal_open();
+            terminal_close();
+        }
+        uint64_t after_terminal = heap_free_bytes();
+        serial_write_string("TEST: heap_free_bytes() after 5x terminal open/close = ");
+        serial_write_uint(after_terminal);
+        serial_write_string(after_terminal == baseline ? " (== baseline, OK)\n" : " (MISMATCH)\n");
+
+        /* Re-open once more to prove the singleton index reset actually
+         * lets a fresh window be created (not just that repeated
+         * open/close is a no-op after the first). */
+        terminal_open();
+        int reopened_ok = terminal_is_open();
+        serial_write_string("TEST: terminal_open() after prior close succeeded = ");
+        serial_write_string(reopened_ok ? "1 (OK)\n" : "0 (FAIL)\n");
+        terminal_close();
+
+        /* One throwaway open/close first: a ~4MB decoded pixel buffer is
+         * bigger than any allocation this heap has served before, so the
+         * very first request can trigger heap_grow() to permanently pull
+         * more physical pages into the pool (normal, expected behavior -
+         * see Phase 13.3), which would make every free-byte count after it
+         * larger than a baseline taken before it even with zero leaks.
+         * Capturing the baseline AFTER this warm-up call, once the heap
+         * has already grown to accommodate this allocation size, isolates
+         * the actual thing being tested: does REPEATED open/close leak. */
+        int warmup_win = imageviewer_open("WALLPAPR.BMP");
+        if (warmup_win != -1) window_close(warmup_win);
+        uint64_t viewer_baseline = heap_free_bytes();
+
+        for (int i = 0; i < 5; i++) {
+            int win = imageviewer_open("WALLPAPR.BMP");
+            if (win != -1) window_close(win);
+        }
+        uint64_t after_viewer = heap_free_bytes();
+        serial_write_string("TEST: heap_free_bytes() after warm-up image-viewer open/close = ");
+        serial_write_uint(viewer_baseline);
+        serial_write_string("\nTEST: heap_free_bytes() after 5 more image-viewer open/close cycles = ");
+        serial_write_uint(after_viewer);
+        serial_write_string(after_viewer == viewer_baseline ? " (== post-warm-up baseline, OK - no leak)\n" : " (MISMATCH - leak?)\n");
+    }
+#endif
+
+#if defined(GOS_TEST_WINDOW_TEARDOWN_LEAK)
+    /* Milestone 16.1 repro: open and close a window with a textbox 20 times
+     * in a loop, checking heap_free_bytes() before the loop and after every
+     * close. window.c's textbox_buffer is a fixed array embedded in struct
+     * window (not kmalloc'd), so window_close()'s Phase-13.6 field-clearing
+     * is already sufficient teardown - this test exists to prove that with
+     * a real before/after heap measurement rather than just code review. */
+    {
+        uint64_t baseline = heap_free_bytes();
+        serial_write_string("TEST: heap_free_bytes() baseline = ");
+        serial_write_uint(baseline);
+        serial_write_string("\n");
+        int leak_detected = 0;
+        for (int iter = 0; iter < 20; iter++) {
+            int w = window_create(500, 500, 300, 150, fb_make_color(70, 130, 180),
+                                   fb_make_color(30, 40, 60), "Teardown Test");
+            window_enable_textbox(w);
+            struct window *win = window_get(w);
+            const char *fill = "unsaved teardown-test content";
+            int i = 0;
+            for (; fill[i]; i++) {
+                win->textbox_buffer[i] = fill[i];
+            }
+            win->textbox_buffer[i] = '\0';
+            win->textbox_length = i;
+            window_close(w);
+            uint64_t after = heap_free_bytes();
+            if (after != baseline) {
+                leak_detected = 1;
+                serial_write_string("TEST: iteration ");
+                serial_write_uint((uint64_t)iter);
+                serial_write_string(" heap_free_bytes()=");
+                serial_write_uint(after);
+                serial_write_string(" (differs from baseline)\n");
+            }
+        }
+        uint64_t final = heap_free_bytes();
+        serial_write_string("TEST: after 20 open/close cycles, heap_free_bytes() = ");
+        serial_write_uint(final);
+        serial_write_string(leak_detected ? " (LEAK - differs from baseline at some point)\n"
+                                           : " (matches baseline every iteration - no leak)\n");
+    }
+#endif
+#if defined(GOS_TEST_MAXIMIZE_ROUNDTRIP)
+    /* Milestone 17.1 repro: create a window at an arbitrary non-origin
+     * geometry, maximize it, then restore it, logging x/y/w/h at each of
+     * the three points so a host script can diff "before" against "after
+     * restore" and confirm an exact round-trip - not just "restore ran
+     * without crashing." */
+    {
+        int w = window_create(137, 211, 333, 141, fb_make_color(180, 130, 70),
+                               fb_make_color(60, 40, 30), "Maximize Test");
+        struct window *win = window_get(w);
+        serial_write_string("TEST: before maximize x=");
+        serial_write_uint((uint64_t)win->x);
+        serial_write_string(" y=");
+        serial_write_uint((uint64_t)win->y);
+        serial_write_string(" w=");
+        serial_write_uint(win->w);
+        serial_write_string(" h=");
+        serial_write_uint(win->h);
+        serial_write_string("\n");
+
+        window_maximize_toggle(w);
+        serial_write_string("TEST: after maximize x=");
+        serial_write_uint((uint64_t)win->x);
+        serial_write_string(" y=");
+        serial_write_uint((uint64_t)win->y);
+        serial_write_string(" w=");
+        serial_write_uint(win->w);
+        serial_write_string(" h=");
+        serial_write_uint(win->h);
+        serial_write_string(" maximized=");
+        serial_write_uint((uint64_t)window_is_maximized(w));
+        serial_write_string("\n");
+
+        window_maximize_toggle(w);
+        serial_write_string("TEST: after restore x=");
+        serial_write_uint((uint64_t)win->x);
+        serial_write_string(" y=");
+        serial_write_uint((uint64_t)win->y);
+        serial_write_string(" w=");
+        serial_write_uint(win->w);
+        serial_write_string(" h=");
+        serial_write_uint(win->h);
+        serial_write_string(" maximized=");
+        serial_write_uint((uint64_t)window_is_maximized(w));
+        serial_write_string(win->x == 137 && win->y == 211 && win->w == 333 && win->h == 141
+                                 ? " (exact round-trip - OK)\n"
+                                 : " (MISMATCH - geometry did not round-trip)\n");
+        window_close(w);
+    }
+#endif
 #if defined(GOS_TEST_WINDOW_CREATE_FEEDBACK)
     /* Finding #17 repro: fill every remaining window slot, then attempt
      * to open the File Manager (which internally calls window_create())

@@ -184,6 +184,16 @@ uint64_t heap_corruption_count(void) {
     return corruption_count;
 }
 
+uint64_t heap_free_bytes(void) {
+    uint64_t total = 0;
+    for (struct block_header *b = heap_start; b; b = b->next) {
+        if (b->is_free) {
+            total += b->size;
+        }
+    }
+    return total;
+}
+
 #define STRESS_ITERATIONS 300
 #define STRESS_MAX_LIVE 32
 

@@ -5,6 +5,7 @@
 #include <fb.h>
 #include <font.h>
 #include <serial.h>
+#include <taskbar.h>
 
 static struct window windows[MAX_WINDOWS];
 static int z_order[MAX_WINDOWS]; /* z_order[0] = backmost, z_order[count-1] = frontmost */
@@ -14,12 +15,21 @@ static int dragging_window = -1; /* index into `windows`, or -1 */
 static int64_t drag_offset_x, drag_offset_y;
 static uint8_t prev_buttons = 0;
 
+/* Milestone 21.1: resize state, parallel to dragging_window above but
+ * tracking which edge(s) are active - resize_right/resize_bottom can both
+ * be set at once (grabbing the bottom-right corner resizes both
+ * dimensions together). */
+static int resizing_window = -1;
+static int resize_right = 0;
+static int resize_bottom = 0;
+
 void window_system_init(void) {
     for (int i = 0; i < MAX_WINDOWS; i++) {
         windows[i].in_use = 0;
     }
     window_count = 0;
     dragging_window = -1;
+    resizing_window = -1;
     prev_buttons = 0;
 }
 
@@ -46,6 +56,8 @@ int window_create(int64_t x, int64_t y, uint64_t w, uint64_t h,
     windows[idx].titlebar_color = titlebar_color;
     windows[idx].body_color = body_color;
     windows[idx].in_use = 1;
+    windows[idx].minimized = 0;
+    windows[idx].maximized = 0;
     int i2 = 0;
     for (; i2 < WINDOW_TITLE_MAX - 1 && title && title[i2]; i2++) {
         windows[idx].title[i2] = title[i2];
@@ -60,6 +72,7 @@ int window_create(int64_t x, int64_t y, uint64_t w, uint64_t h,
     windows[idx].custom_render = 0;
     windows[idx].custom_click = 0;
     windows[idx].custom_key = 0;
+    windows[idx].on_close = 0;
     windows[idx].user_data = 0;
 
     z_order[window_count] = idx;
@@ -101,6 +114,13 @@ void *window_get_user_data(int win_index) {
         return 0;
     }
     return windows[win_index].user_data;
+}
+
+void window_set_close_callback(int win_index, window_close_callback_t cb) {
+    if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
+        return;
+    }
+    windows[win_index].on_close = cb;
 }
 
 void window_set_key_callback(int win_index, window_key_callback_t cb) {
@@ -177,9 +197,47 @@ void window_focus(int win_index) {
     raise_to_front(win_index);
 }
 
+void window_focus_next(void) {
+    /* Milestone 21.2: rotate the WHOLE z_order ring left by one (what was
+     * backmost becomes frontmost), rather than repeatedly calling
+     * raise_to_front() on "the window just behind the current front" -
+     * that naive approach only ever swaps the last two z_order entries
+     * back and forth (raising the second-from-top window to the top
+     * shifts everything between its old slot and the end down by one,
+     * which for the second-from-top slot is just a swap of the last two),
+     * so with 3+ windows the backmost one would never surface no matter
+     * how many times Alt+Tab is pressed. A full ring rotation visits every
+     * window exactly once per window_count presses instead. */
+    if (window_count <= 1) {
+        return;
+    }
+    for (int step = 0; step < window_count; step++) {
+        int first = z_order[0];
+        for (int i = 0; i < window_count - 1; i++) {
+            z_order[i] = z_order[i + 1];
+        }
+        z_order[window_count - 1] = first;
+
+        int new_front = z_order[window_count - 1];
+        if (!windows[new_front].minimized) {
+            serial_write_string("Alt+Tab: focus -> \"");
+            serial_write_string(windows[new_front].title);
+            serial_write_string("\"\n");
+            return;
+        }
+        /* This one's minimized - keep rotating (skip it) rather than stop
+         * here, up to window_count steps so an all-minimized desktop
+         * doesn't spin forever; if every window is minimized we end up
+         * back at the original order having changed nothing. */
+    }
+}
+
 void window_close(int win_index) {
     if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
         return;
+    }
+    if (windows[win_index].on_close) {
+        windows[win_index].on_close(&windows[win_index]);
     }
     int pos = -1;
     for (int i = 0; i < window_count; i++) {
@@ -195,6 +253,8 @@ void window_close(int win_index) {
         window_count--;
     }
     windows[win_index].in_use = 0;
+    windows[win_index].minimized = 0;
+    windows[win_index].maximized = 0;
     /* Clear everything else too, not just in_use - a closed slot must be
      * fully inert. Without this, a slot reused by window_create() later
      * would start from a still-configured previous window's buttons/
@@ -213,9 +273,13 @@ void window_close(int win_index) {
     windows[win_index].custom_render = 0;
     windows[win_index].custom_click = 0;
     windows[win_index].custom_key = 0;
+    windows[win_index].on_close = 0;
     windows[win_index].user_data = 0;
     if (dragging_window == win_index) {
         dragging_window = -1;
+    }
+    if (resizing_window == win_index) {
+        resizing_window = -1;
     }
 }
 
@@ -223,9 +287,80 @@ static int point_in_rect(int64_t px, int64_t py, int64_t rx, int64_t ry, uint64_
     return px >= rx && py >= ry && px < rx + (int64_t)rw && py < ry + (int64_t)rh;
 }
 
+void window_minimize(int win_index) {
+    if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
+        return;
+    }
+    windows[win_index].minimized = 1;
+    if (dragging_window == win_index) {
+        dragging_window = -1;
+    }
+    if (resizing_window == win_index) {
+        resizing_window = -1;
+    }
+}
+
+void window_restore(int win_index) {
+    if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
+        return;
+    }
+    windows[win_index].minimized = 0;
+}
+
+int window_is_minimized(int win_index) {
+    if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
+        return 0;
+    }
+    return windows[win_index].minimized;
+}
+
+void window_maximize_toggle(int win_index) {
+    if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
+        return;
+    }
+    struct window *win = &windows[win_index];
+    if (win->maximized) {
+        win->x = win->restore_x;
+        win->y = win->restore_y;
+        win->w = win->restore_w;
+        win->h = win->restore_h;
+        win->maximized = 0;
+    } else {
+        win->restore_x = win->x;
+        win->restore_y = win->y;
+        win->restore_w = win->w;
+        win->restore_h = win->h;
+        win->x = 0;
+        win->y = 0;
+        win->w = fb_width();
+        /* h is the BODY height (titlebar is drawn above it) - subtract both
+         * the titlebar and the taskbar strip so the maximized window fills
+         * everything else exactly, with no bleed under the taskbar. */
+        uint64_t reserved = WINDOW_TITLEBAR_HEIGHT + TASKBAR_HEIGHT;
+        win->h = (fb_height() > reserved) ? (fb_height() - reserved) : 0;
+        win->maximized = 1;
+    }
+    if (dragging_window == win_index) {
+        dragging_window = -1;
+    }
+    if (resizing_window == win_index) {
+        resizing_window = -1;
+    }
+}
+
+int window_is_maximized(int win_index) {
+    if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
+        return 0;
+    }
+    return windows[win_index].maximized;
+}
+
 int window_point_hits_any(int64_t px, int64_t py) {
     for (int i = 0; i < window_count; i++) {
         struct window *win = &windows[z_order[i]];
+        if (win->minimized) {
+            continue; /* hidden - can't be under the click */
+        }
         if (point_in_rect(px, py, win->x, win->y, win->w, win->h + WINDOW_TITLEBAR_HEIGHT)) {
             return 1;
         }
@@ -244,11 +379,16 @@ int window_at_zorder(int pos) {
     return z_order[pos];
 }
 
-/* Finds the frontmost window whose title bar or body contains the point. */
+/* Finds the frontmost window whose title bar or body contains the point.
+ * Minimized windows are skipped - they're not drawn, so they can't be
+ * clicked. */
 static int window_at_point(int64_t px, int64_t py) {
     for (int i = window_count - 1; i >= 0; i--) {
         int idx = z_order[i];
         struct window *win = &windows[idx];
+        if (win->minimized) {
+            continue;
+        }
         if (point_in_rect(px, py, win->x, win->y, win->w, win->h + WINDOW_TITLEBAR_HEIGHT)) {
             return idx;
         }
@@ -270,12 +410,54 @@ void window_system_update(void) {
             struct window *win = &windows[hit];
             int64_t close_x = win->x + (int64_t)win->w - WINDOW_CLOSE_BUTTON_SIZE - WINDOW_CLOSE_BUTTON_MARGIN;
             int64_t close_y = win->y + WINDOW_CLOSE_BUTTON_MARGIN;
+            int64_t min_x = close_x - WINDOW_MINIMIZE_BUTTON_GAP - WINDOW_MINIMIZE_BUTTON_SIZE;
+            int64_t min_y = win->y + WINDOW_CLOSE_BUTTON_MARGIN;
+            int64_t max_btn_x = min_x - WINDOW_MAXIMIZE_BUTTON_GAP - WINDOW_MAXIMIZE_BUTTON_SIZE;
+            int64_t max_btn_y = win->y + WINDOW_CLOSE_BUTTON_MARGIN;
             if (point_in_rect(mx, my, close_x, close_y, WINDOW_CLOSE_BUTTON_SIZE, WINDOW_CLOSE_BUTTON_SIZE)) {
                 window_close(hit);
+            } else if (point_in_rect(mx, my, min_x, min_y, WINDOW_MINIMIZE_BUTTON_SIZE, WINDOW_MINIMIZE_BUTTON_SIZE)) {
+                window_minimize(hit);
+            } else if (point_in_rect(mx, my, max_btn_x, max_btn_y, WINDOW_MAXIMIZE_BUTTON_SIZE, WINDOW_MAXIMIZE_BUTTON_SIZE)) {
+                window_maximize_toggle(hit);
+            } else if (!win->maximized &&
+                       (mx >= win->x + (int64_t)win->w - WINDOW_RESIZE_MARGIN && mx < win->x + (int64_t)win->w) &&
+                       (my >= win->y + (int64_t)win->h + WINDOW_TITLEBAR_HEIGHT - WINDOW_RESIZE_MARGIN &&
+                        my < win->y + (int64_t)win->h + WINDOW_TITLEBAR_HEIGHT) &&
+                       point_in_rect(mx, my, win->x, win->y, win->w, win->h + WINDOW_TITLEBAR_HEIGHT)) {
+                /* Milestone 21.1: bottom-right corner - resize both
+                 * dimensions together. Checked before the plain right-edge
+                 * and bottom-edge zones below so the corner (which overlaps
+                 * both) isn't swallowed by whichever single-edge check the
+                 * plain if/else-if chain would otherwise hit first. */
+                resizing_window = hit;
+                resize_right = 1;
+                resize_bottom = 1;
+            } else if (!win->maximized &&
+                       (mx >= win->x + (int64_t)win->w - WINDOW_RESIZE_MARGIN && mx < win->x + (int64_t)win->w) &&
+                       point_in_rect(mx, my, win->x, win->y, win->w, win->h + WINDOW_TITLEBAR_HEIGHT)) {
+                /* Right edge only. */
+                resizing_window = hit;
+                resize_right = 1;
+                resize_bottom = 0;
+            } else if (!win->maximized &&
+                       (my >= win->y + (int64_t)win->h + WINDOW_TITLEBAR_HEIGHT - WINDOW_RESIZE_MARGIN &&
+                        my < win->y + (int64_t)win->h + WINDOW_TITLEBAR_HEIGHT) &&
+                       point_in_rect(mx, my, win->x, win->y, win->w, win->h + WINDOW_TITLEBAR_HEIGHT)) {
+                /* Bottom edge only. */
+                resizing_window = hit;
+                resize_right = 0;
+                resize_bottom = 1;
             } else if (point_in_rect(mx, my, win->x, win->y, win->w, WINDOW_TITLEBAR_HEIGHT)) {
-                dragging_window = hit;
-                drag_offset_x = mx - win->x;
-                drag_offset_y = my - win->y;
+                /* Milestone 17.1: dragging a maximized window doesn't make
+                 * sense (it fills the screen) - require restoring first via
+                 * the maximize button, matching the button-only toggle
+                 * design the user chose over double-click-to-restore. */
+                if (!win->maximized) {
+                    dragging_window = hit;
+                    drag_offset_x = mx - win->x;
+                    drag_offset_y = my - win->y;
+                }
             } else {
                 /* Click landed in the body - check buttons first. */
                 int64_t local_x = mx - win->x;
@@ -311,6 +493,43 @@ void window_system_update(void) {
 
     if (left_released_edge) {
         dragging_window = -1;
+        resizing_window = -1;
+    }
+
+    /* Milestone 21.2: no mouse click involved at all - a keyboard-only
+     * window-switch check, independent of everything else in this
+     * function. */
+    if (kb_consume_alt_tab()) {
+        window_focus_next();
+    }
+
+    if (resizing_window != -1 && (buttons & MOUSE_LEFT_BUTTON)) {
+        struct window *rw = &windows[resizing_window];
+        if (resize_right) {
+            int64_t new_w = mx - rw->x;
+            if (new_w < WINDOW_MIN_WIDTH) {
+                new_w = WINDOW_MIN_WIDTH;
+            }
+            int64_t max_w = (int64_t)fb_width() - rw->x;
+            if (new_w > max_w) {
+                new_w = max_w;
+            }
+            rw->w = (uint64_t)new_w;
+        }
+        if (resize_bottom) {
+            int64_t new_h = my - rw->y - WINDOW_TITLEBAR_HEIGHT;
+            if (new_h < WINDOW_MIN_HEIGHT) {
+                new_h = WINDOW_MIN_HEIGHT;
+            }
+            /* Leave room for the taskbar - a resize shouldn't be able to
+             * drag a window's body underneath it (matching Milestone
+             * 17.1's maximize sizing, which reserves the same strip). */
+            int64_t max_h = (int64_t)fb_height() - TASKBAR_HEIGHT - rw->y - WINDOW_TITLEBAR_HEIGHT;
+            if (new_h > max_h) {
+                new_h = max_h;
+            }
+            rw->h = (uint64_t)new_h;
+        }
     }
 
     if (dragging_window != -1 && (buttons & MOUSE_LEFT_BUTTON)) {
@@ -350,7 +569,7 @@ void window_system_update(void) {
      * unfocused windows' text boxes are untouched even if they have one. */
     if (window_count > 0) {
         struct window *focused = &windows[z_order[window_count - 1]];
-        if (focused->has_textbox) {
+        if (focused->has_textbox && !focused->minimized) {
             while (kb_has_char()) {
                 char c = kb_getchar();
                 if (focused->custom_key && focused->custom_key(focused, c)) {
@@ -377,10 +596,14 @@ static void draw_window(struct window *win) {
 
     /* Title text, clipped to the title bar rect so a long title can never
      * spill out into the body or past the window's right edge, leaving
-     * room on the right for the close button drawn below. */
+     * room on the right for the close/minimize/maximize buttons drawn
+     * below. */
+    int64_t reserved_right = WINDOW_CLOSE_BUTTON_SIZE + WINDOW_CLOSE_BUTTON_MARGIN
+                            + WINDOW_MINIMIZE_BUTTON_SIZE + WINDOW_MINIMIZE_BUTTON_GAP
+                            + WINDOW_MAXIMIZE_BUTTON_SIZE + WINDOW_MAXIMIZE_BUTTON_GAP + WINDOW_CLOSE_BUTTON_MARGIN;
     fb_draw_string_clipped(win->x + 6, win->y + (WINDOW_TITLEBAR_HEIGHT - FONT_HEIGHT) / 2,
                             win->title, fb_make_color(255, 255, 255), win->titlebar_color,
-                            win->x, win->y, win->w - WINDOW_CLOSE_BUTTON_SIZE - 2 * WINDOW_CLOSE_BUTTON_MARGIN,
+                            win->x, win->y, win->w - (uint64_t)reserved_right,
                             WINDOW_TITLEBAR_HEIGHT);
 
     /* Milestone 11.2: a small red "X" close button at the top-right of
@@ -392,6 +615,42 @@ static void draw_window(struct window *win) {
         fb_draw_rect_outline(cx, cy, WINDOW_CLOSE_BUTTON_SIZE, WINDOW_CLOSE_BUTTON_SIZE, fb_make_color(0, 0, 0), 1);
         fb_draw_line(cx + 3, cy + 3, cx + WINDOW_CLOSE_BUTTON_SIZE - 4, cy + WINDOW_CLOSE_BUTTON_SIZE - 4, fb_make_color(255, 255, 255));
         fb_draw_line(cx + WINDOW_CLOSE_BUTTON_SIZE - 4, cy + 3, cx + 3, cy + WINDOW_CLOSE_BUTTON_SIZE - 4, fb_make_color(255, 255, 255));
+    }
+
+    /* Milestone 16.2: a small amber "_" minimize button immediately to the
+     * left of the close button, hit-tested in window_system_update(). */
+    {
+        int64_t close_x = win->x + (int64_t)win->w - WINDOW_CLOSE_BUTTON_SIZE - WINDOW_CLOSE_BUTTON_MARGIN;
+        int64_t mx = close_x - WINDOW_MINIMIZE_BUTTON_GAP - WINDOW_MINIMIZE_BUTTON_SIZE;
+        int64_t my = win->y + WINDOW_CLOSE_BUTTON_MARGIN;
+        fb_draw_rect(mx, my, WINDOW_MINIMIZE_BUTTON_SIZE, WINDOW_MINIMIZE_BUTTON_SIZE, fb_make_color(210, 160, 60));
+        fb_draw_rect_outline(mx, my, WINDOW_MINIMIZE_BUTTON_SIZE, WINDOW_MINIMIZE_BUTTON_SIZE, fb_make_color(0, 0, 0), 1);
+        fb_draw_line(mx + 3, my + WINDOW_MINIMIZE_BUTTON_SIZE - 5, mx + WINDOW_MINIMIZE_BUTTON_SIZE - 4,
+                     my + WINDOW_MINIMIZE_BUTTON_SIZE - 5, fb_make_color(0, 0, 0));
+    }
+
+    /* Milestone 17.1: a small blue-green square maximize/restore toggle
+     * button immediately to the left of the minimize button, hit-tested in
+     * window_system_update(). Drawn as a hollow square (maximize) or a
+     * smaller offset square (restore) so the two states are visually
+     * distinguishable, matching the close/minimize buttons' convention of
+     * a simple glyph rather than text. */
+    {
+        int64_t close_x = win->x + (int64_t)win->w - WINDOW_CLOSE_BUTTON_SIZE - WINDOW_CLOSE_BUTTON_MARGIN;
+        int64_t min_x = close_x - WINDOW_MINIMIZE_BUTTON_GAP - WINDOW_MINIMIZE_BUTTON_SIZE;
+        int64_t mx = min_x - WINDOW_MAXIMIZE_BUTTON_GAP - WINDOW_MAXIMIZE_BUTTON_SIZE;
+        int64_t my = win->y + WINDOW_CLOSE_BUTTON_MARGIN;
+        fb_draw_rect(mx, my, WINDOW_MAXIMIZE_BUTTON_SIZE, WINDOW_MAXIMIZE_BUTTON_SIZE, fb_make_color(90, 170, 170));
+        fb_draw_rect_outline(mx, my, WINDOW_MAXIMIZE_BUTTON_SIZE, WINDOW_MAXIMIZE_BUTTON_SIZE, fb_make_color(0, 0, 0), 1);
+        if (win->maximized) {
+            /* Restore glyph: two overlapping offset squares. */
+            fb_draw_rect_outline(mx + 2, my + 4, 8, 8, fb_make_color(0, 0, 0), 1);
+            fb_draw_rect_outline(mx + 5, my + 2, 8, 8, fb_make_color(0, 0, 0), 1);
+        } else {
+            /* Maximize glyph: one square. */
+            fb_draw_rect_outline(mx + 3, my + 3, WINDOW_MAXIMIZE_BUTTON_SIZE - 6, WINDOW_MAXIMIZE_BUTTON_SIZE - 6,
+                                 fb_make_color(0, 0, 0), 1);
+        }
     }
 
     for (int i = 0; i < MAX_WIDGETS_PER_WINDOW; i++) {
@@ -444,7 +703,11 @@ static void draw_window(struct window *win) {
 
 void window_composite(void) {
     for (int i = 0; i < window_count; i++) {
-        draw_window(&windows[z_order[i]]);
+        struct window *win = &windows[z_order[i]];
+        if (win->minimized) {
+            continue; /* Milestone 16.2: state preserved, just not drawn */
+        }
+        draw_window(win);
     }
     /* Milestone 15.1: the cursor is no longer drawn here - it must sit in
      * the compositor's true top layer (above the taskbar too), so the main
