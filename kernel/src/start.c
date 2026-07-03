@@ -24,6 +24,9 @@
 #include <rtc.h>
 #include <syscall.h>
 #include <process.h>
+#include <terminal.h>
+#include <calculator.h>
+#include <imageviewer.h>
 
 extern uint8_t __kernel_virt_start[];
 extern uint8_t __kernel_virt_end[];
@@ -1022,6 +1025,64 @@ void _start(void) {
             serial_write_string(renamed_ok ? "OK" : "FAIL");
             serial_write_string("\n");
         }
+    }
+#endif
+
+#if defined(GOS_TEST_APPS)
+    /* Milestone 24.1/24.2/24.3: repeated open/close of the Terminal,
+     * Calculator, and Image Viewer, checking heap_free_bytes() before and
+     * after - proves (a) the singleton close-callback reset actually lets
+     * terminal_open()/calculator_open() create a fresh window instead of
+     * silently no-op'ing on a stale index after the first close, and (b)
+     * the Image Viewer's on_close callback frees its kmalloc'd decoded
+     * pixel buffer, so opening/closing it repeatedly doesn't leak. */
+    {
+        uint64_t baseline = heap_free_bytes();
+        serial_write_string("TEST: heap_free_bytes() baseline = ");
+        serial_write_uint(baseline);
+        serial_write_string("\n");
+
+        for (int i = 0; i < 5; i++) {
+            terminal_open();
+            terminal_close();
+        }
+        uint64_t after_terminal = heap_free_bytes();
+        serial_write_string("TEST: heap_free_bytes() after 5x terminal open/close = ");
+        serial_write_uint(after_terminal);
+        serial_write_string(after_terminal == baseline ? " (== baseline, OK)\n" : " (MISMATCH)\n");
+
+        /* Re-open once more to prove the singleton index reset actually
+         * lets a fresh window be created (not just that repeated
+         * open/close is a no-op after the first). */
+        terminal_open();
+        int reopened_ok = terminal_is_open();
+        serial_write_string("TEST: terminal_open() after prior close succeeded = ");
+        serial_write_string(reopened_ok ? "1 (OK)\n" : "0 (FAIL)\n");
+        terminal_close();
+
+        /* One throwaway open/close first: a ~4MB decoded pixel buffer is
+         * bigger than any allocation this heap has served before, so the
+         * very first request can trigger heap_grow() to permanently pull
+         * more physical pages into the pool (normal, expected behavior -
+         * see Phase 13.3), which would make every free-byte count after it
+         * larger than a baseline taken before it even with zero leaks.
+         * Capturing the baseline AFTER this warm-up call, once the heap
+         * has already grown to accommodate this allocation size, isolates
+         * the actual thing being tested: does REPEATED open/close leak. */
+        int warmup_win = imageviewer_open("WALLPAPR.BMP");
+        if (warmup_win != -1) window_close(warmup_win);
+        uint64_t viewer_baseline = heap_free_bytes();
+
+        for (int i = 0; i < 5; i++) {
+            int win = imageviewer_open("WALLPAPR.BMP");
+            if (win != -1) window_close(win);
+        }
+        uint64_t after_viewer = heap_free_bytes();
+        serial_write_string("TEST: heap_free_bytes() after warm-up image-viewer open/close = ");
+        serial_write_uint(viewer_baseline);
+        serial_write_string("\nTEST: heap_free_bytes() after 5 more image-viewer open/close cycles = ");
+        serial_write_uint(after_viewer);
+        serial_write_string(after_viewer == viewer_baseline ? " (== post-warm-up baseline, OK - no leak)\n" : " (MISMATCH - leak?)\n");
     }
 #endif
 

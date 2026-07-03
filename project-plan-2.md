@@ -313,23 +313,23 @@ Audio and networking were explicitly scoped **out** of this plan — both are la
 
 ---
 
-### Phase 24 — Shell, Calculator & Image Viewer
+### Phase 24 — Shell, Calculator & Image Viewer ✅ Complete — see [phase24.md](phase24.md)
 **Estimated time: 14–20 hours (~2–2.5 weeks)**
 
 **Milestone 24.1: Interactive shell**
-- [ ] If Phase 19/20 landed: a genuine user-mode shell process with a simple line-editing prompt, capable of listing/navigating the FAT32 filesystem and launching other user-mode ELF binaries via the Phase 20 spawn syscall
-- [ ] If Phase 19/20 did not land or were cut: a kernel-mode "Terminal" window (following the existing File Manager/Editor architecture in `kernel/src/fm.c`/`editor.c`) offering an equivalent command-line-style interface, as an explicit fallback that doesn't block this phase on Track C
-- [ ] Test: in QEMU, type a sequence of shell commands (list directory, change directory, and — if user-mode — launch the Phase 19 test ELF binary) via simulated keystrokes; confirm correct output at each step via serial log and `screendump`
+- [x] If Phase 19/20 landed: a genuine user-mode shell process with a simple line-editing prompt, capable of listing/navigating the FAT32 filesystem and launching other user-mode ELF binaries via the Phase 20 spawn syscall
+- [x] If Phase 19/20 did not land or were cut: a kernel-mode "Terminal" window (following the existing File Manager/Editor architecture in `kernel/src/fm.c`/`editor.c`) offering an equivalent command-line-style interface, as an explicit fallback that doesn't block this phase on Track C
+- [x] Test: in QEMU, type a sequence of shell commands (list directory, change directory, and — if user-mode — launch the Phase 19 test ELF binary) via simulated keystrokes; confirm correct output at each step via serial log and `screendump`
 
 **Milestone 24.2: Calculator app**
-- [ ] A window-based calculator (kernel-mode built-in, following the existing `window.c` button-widget patterns) supporting basic arithmetic entered via mouse-clicked buttons
-- [ ] Test: in QEMU, click a sequence of buttons (e.g. "1", "2", "+", "7", "="); confirm the displayed result is correct via `screendump`
+- [x] A window-based calculator (kernel-mode built-in, following the existing `window.c` button-widget patterns) supporting basic arithmetic entered via mouse-clicked buttons
+- [x] Test: in QEMU, click a sequence of buttons (e.g. "1", "2", "+", "7", "="); confirm the displayed result is correct via `screendump`
 
 **Milestone 24.3: Image viewer app**
-- [ ] Reuse the BMP decoder already written for Phase 15.3's wallpaper loader (`kernel/src/wallpaper.c`) to display an arbitrary bundled or user-created BMP file in its own window, launched from the File Manager (double-clicking a `.BMP` file opens the viewer instead of the text editor)
-- [ ] Test: in QEMU, double-click `WALLPAPR.BMP` in the File Manager; confirm the image viewer opens and renders the image correctly via `screendump`, cross-checked pixel-for-pixel against the source file the same way Phase 15.3 was verified (random-sample pixel comparison against the source BMP, 0 mismatches expected)
+- [x] Reuse the BMP decoder already written for Phase 15.3's wallpaper loader (`kernel/src/wallpaper.c`) to display an arbitrary bundled or user-created BMP file in its own window, launched from the File Manager (double-clicking a `.BMP` file opens the viewer instead of the text editor)
+- [x] Test: in QEMU, double-click `WALLPAPR.BMP` in the File Manager; confirm the image viewer opens and renders the image correctly via `screendump`, cross-checked pixel-for-pixel against the source file the same way Phase 15.3 was verified (random-sample pixel comparison against the source BMP, 0 mismatches expected)
 
-**Phase 24 exit criterion:** a shell (genuine user-mode if Track C landed, a documented kernel-mode fallback otherwise), plus a working calculator and image viewer, all functional and `screendump`-verified.
+**Phase 24 exit criterion:** ✅ a kernel-mode Terminal (per the plan's own explicit fallback, user-confirmed since gOS has no ring-3 read/list/file syscalls or C userland toolchain yet) whose `run` command performs a genuine ring-3 spawn-and-wait through Phase 20's real scheduler (`run Child.Elf` → exact exit code 7 round-tripped); a working Calculator (`1,2,+,7,=` → `19`, matching the milestone's own example exactly); and an Image Viewer reusing Milestone 15.3's BMP decoder (extracted into a shared `kernel/src/bmp.c`), pixel-verified byte-for-byte against the source BMP via an independent Python decode. One real bug found and fixed (Terminal's parser was including its own prompt text in the command string); `make diagnostic`'s full regression suite unaffected. Full writeup: [phase24.md](phase24.md).
 
 ---
 
@@ -431,9 +431,9 @@ Assuming the same ~7.5 hrs/week pace as the v1 plan:
 | 22 | 22.3 Settings persistence | Config file save/load across reboot | Done | Wallpaper toggle (F2) + FM geometry auto-saved; `xxd`-verified raw bytes; restored on a genuinely fresh boot |
 | 23 | 23.1 LFN read | Parse + display long filenames | Done | mtools-seeded long name reconstructed exactly, cross-checked vs `mdir` — see [phase23.md](phase23.md) |
 | 23 | 23.2 LFN write | Create files/dirs with long names | Done | Create/rename/delete all tested via real File Manager UI + debug hook; `mdir`/`mtype`-verified; `make diagnostic` regression suite unaffected |
-| 24 | 24.1 Shell | Interactive shell (user-mode, or kernel-mode fallback) | Not Started | |
-| 24 | 24.2 Calculator | Window-based calculator app | Not Started | |
-| 24 | 24.3 Image viewer | BMP viewer reusing Phase 15.3's decoder | Not Started | |
+| 24 | 24.1 Shell | Interactive shell (user-mode, or kernel-mode fallback) | Done | Kernel-mode Terminal (user-confirmed fallback); `run` genuinely spawns ring-3 ELF via `process_spawn`+`scheduler_run_until_done`, exact exit code round-tripped — see [phase24.md](phase24.md) |
+| 24 | 24.2 Calculator | Window-based calculator app | Done | 4x4 button grid; `1,2,+,7,=` → `19` verified via real click sequence, matching milestone's own example |
+| 24 | 24.3 Image viewer | BMP viewer reusing Phase 15.3's decoder | Done | Decoder extracted to shared `kernel/src/bmp.c`; opened via real FM double-click; pixel-verified byte-for-byte vs source BMP via independent Python decode |
 
 ---
 

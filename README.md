@@ -73,6 +73,7 @@ gOS targets a real (or emulated) x86_64 PC. The numbers below are the environmen
 - **Window resize & Alt+Tab (Track D, Phase 21):** every window can now be resized by dragging any edge or the bottom-right corner, clamped to a sane minimum size and the screen bounds; Alt+Tab cycles focus through every open window with no mouse involved. Found and fixed a real design bug before ever booting it: the first focus-cycling implementation only ever toggled between the last two windows instead of visiting all of them, caught by hand-tracing the algorithm against the milestone's own "stable, non-repeating order" requirement — see [phase21.md](phase21.md)
 - **RTC, taskbar clock & settings persistence (Track D, Phase 22):** a CMOS real-time-clock driver feeds a live taskbar clock, verified to advance exactly 10 seconds between two precisely-timed screendumps against a QEMU-controlled clock. A new `GOS.CFG` file persists the wallpaper choice (F2 toggles between the bundled BMP and a plain gradient) and the File Manager's window geometry, auto-saved on change and restored on the next boot — independently verified byte-for-byte via `xxd` on the raw file, not just gOS's own read-back — see [phase22.md](phase22.md)
 - **FAT32 long filename (VFAT) support (Track D, Phase 23):** filenames up to 63 ASCII characters now read, display, create, rename, and delete correctly, reconstructing/generating the VFAT long-name directory entries (checksum-linked to a generated `BASENAM~1.EXT`-style short alias) that were previously just skipped. Verified in both directions against `mtools` (`mdir`/`mtype`) — host-seeded long names read correctly by gOS, and gOS-created/renamed/deleted long names read correctly from the host afterward — with the full pre-existing regression suite unaffected — see [phase23.md](phase23.md)
+- **Shell, Calculator & Image Viewer (Track E, Phase 24):** a kernel-mode Terminal (`ls`/`cd`/`run <NAME.ELF>`/`help`/`clear`) whose `run` command performs a genuine ring-3 spawn-and-wait through Phase 20's real scheduler (`run Child.Elf` prints the exact exit code, 7, round-tripped from the ELF's own `SYS_EXIT`); a Calculator supporting integer `+ - x /` (verified against the milestone's own `1,2,+,7,= → 19` example, click for click); and an Image Viewer reusing Milestone 15.3's BMP decoder (extracted into a shared `bmp.c` module), opened by double-clicking any `.BMP` file in the File Manager and pixel-verified byte-for-byte against the source file via an independent Python decode. Found and fixed a real bug along the way: the Terminal's command parser was including its own echoed prompt text in the string it tried to execute — see [phase24.md](phase24.md)
 
 ---
 
@@ -472,6 +473,27 @@ Typed into the New File dialog via simulated keystrokes, confirmed with a click 
 ![The same file renamed to a different long name, in place](screenshots/phase23_rename_done.png)
 ![The file deleted - gone from the listing with no orphaned entries](screenshots/phase23_delete_done.png)
 
+### Phase 24 — Shell, Calculator & Image Viewer (Track E)
+
+**Terminal: filesystem navigation and a real ring-3 process launch** ([phase24.md](phase24.md), Milestone 24.1)
+`ls`/`cd`/`ls` navigate the real FAT32 tree (shown here matching the File Manager's own listing behind it); `run Child.Elf` performs a genuine `process_spawn()` + blocking `scheduler_run_until_done()` launch and reports the exact exit code (7) the ELF returned via its own `SYS_EXIT`.
+
+![Terminal `ls` matching the File Manager's listing](screenshots/phase24_ls.png)
+![Terminal `cd Testdir` then `ls` showing the nested file](screenshots/phase24_cd_ls.png)
+![Terminal `run Child.Elf` reporting the exact exit code 7](screenshots/phase24_run_child.png)
+
+**Calculator: the milestone's own test sequence** ([phase24.md](phase24.md), Milestone 24.2)
+Clicking "1", "2", "+", "7", "=" produces `19`; clicking "C" clears back to `0`.
+
+![Calculator freshly opened](screenshots/phase24_debug_calc.png)
+![Calculator showing 19 after 1, 2, +, 7, =](screenshots/phase24_calc_19.png)
+![Calculator cleared back to 0](screenshots/phase24_calc_cleared.png)
+
+**Image Viewer: opened via a real File Manager double-click** ([phase24.md](phase24.md), Milestone 24.3)
+Double-clicking `WALLPAPR.BMP` opens it in a new window at native resolution, reusing Milestone 15.3's BMP decoder (now shared via `bmp.c`) - pixel-verified byte-for-byte against the source file via an independent Python decode.
+
+![Image Viewer showing the bundled wallpaper BMP](screenshots/phase24_debug_imgviewer.png)
+
 ---
 
 ## Project structure
@@ -503,6 +525,7 @@ phase20.md           v2 Track C, Phase 2: preemptive multitasking, per-process p
 phase21.md           v2 Track D, Phase 1: window drag-to-resize + Alt+Tab switching
 phase22.md           v2 Track D, Phase 2: CMOS RTC + taskbar clock + GOS.CFG settings persistence
 phase23.md           v2 Track D, Phase 3: FAT32 long filename (VFAT) read/write support (Track D now complete)
+phase24.md           v2 Track E: kernel-mode Terminal (real ring-3 spawn), Calculator, Image Viewer (Track E now complete)
 tools/userland/      standalone user-mode test programs (ring3_test.asm, hello.asm/user.ld,
                       spinner.asm/child.asm/parent.asm/proc.ld) - built independently of the
                       kernel, no libc/crt0

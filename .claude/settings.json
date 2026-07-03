@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(grep \"FM:\" /var/folders/jj/0qyq4l9j7rq4gc_0dkxyglpr0000gn/T/tmp.*/serial.log 2>/dev/null | tail -5 *)",
-      "Read(//private/var/folders/jj/0qyq4l9j7rq4gc_0dkxyglpr0000gn/T/**)"
+      "Read(//private/var/folders/jj/0qyq4l9j7rq4gc_0dkxyglpr0000gn/T/**)",
+      "Bash(mmd -i disk_images/gos_disk.img ::TESTDIR)",
+      "Bash(mcopy -i disk_images/gos_disk.img /tmp/nested.txt ::TESTDIR/NESTED.TXT)",
+      "Bash(mdir -i disk_images/gos_disk.img ::TESTDIR)"
     ]
   }
 }

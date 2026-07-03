@@ -5,7 +5,11 @@
 
 #define WINDOW_TITLEBAR_HEIGHT 24
 #define MAX_WINDOWS 8
-#define MAX_WIDGETS_PER_WINDOW 8
+/* Raised from 8 (Phase 24): the Calculator needs 16 buttons (10 digits + 4
+ * operators + '=' + 'C'), comfortably under 20 with room to spare. Purely a
+ * capacity constant - every consumer (window.c's loops, struct window's
+ * buttons[] array) is already sized off this macro. */
+#define MAX_WIDGETS_PER_WINDOW 20
 #define WINDOW_TITLE_MAX 32
 #define TEXTBOX_BUFFER_SIZE 512
 #define WINDOW_CLOSE_BUTTON_SIZE 16
@@ -63,6 +67,12 @@ typedef void (*window_click_callback_t)(struct window *win, int64_t local_x, int
  * as normal. */
 typedef int (*window_key_callback_t)(struct window *win, char c);
 
+/* Called once, right before a window's slot is torn down by window_close(),
+ * so a window whose user_data points at kmalloc'd memory (e.g. Phase 24's
+ * Image Viewer, one decoded BMP pixel buffer per window) can free it. NULL
+ * if the window owns no heap allocations beyond the struct itself. */
+typedef void (*window_close_callback_t)(struct window *win);
+
 struct window {
     int64_t x, y;
     uint64_t w, h;
@@ -83,6 +93,7 @@ struct window {
     window_render_callback_t custom_render;
     window_click_callback_t custom_click;
     window_key_callback_t custom_key;
+    window_close_callback_t on_close;
     void *user_data;
 };
 
@@ -107,6 +118,11 @@ void window_set_click_callback(int win_index, window_click_callback_t cb);
 void window_set_key_callback(int win_index, window_key_callback_t cb);
 void window_set_user_data(int win_index, void *data);
 void *window_get_user_data(int win_index);
+
+/* Registers a destructor invoked once at the start of window_close(), before
+ * any fields are cleared - so it can still read user_data to know what to
+ * free. NULL (the default) means window_close() does no extra cleanup. */
+void window_set_close_callback(int win_index, window_close_callback_t cb);
 
 /* Returns a pointer to the window struct at this index (so callers like
  * Phase 10's text editor can read/write textbox_buffer directly), or NULL

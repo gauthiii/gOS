@@ -72,6 +72,7 @@ int window_create(int64_t x, int64_t y, uint64_t w, uint64_t h,
     windows[idx].custom_render = 0;
     windows[idx].custom_click = 0;
     windows[idx].custom_key = 0;
+    windows[idx].on_close = 0;
     windows[idx].user_data = 0;
 
     z_order[window_count] = idx;
@@ -113,6 +114,13 @@ void *window_get_user_data(int win_index) {
         return 0;
     }
     return windows[win_index].user_data;
+}
+
+void window_set_close_callback(int win_index, window_close_callback_t cb) {
+    if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
+        return;
+    }
+    windows[win_index].on_close = cb;
 }
 
 void window_set_key_callback(int win_index, window_key_callback_t cb) {
@@ -228,6 +236,9 @@ void window_close(int win_index) {
     if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
         return;
     }
+    if (windows[win_index].on_close) {
+        windows[win_index].on_close(&windows[win_index]);
+    }
     int pos = -1;
     for (int i = 0; i < window_count; i++) {
         if (z_order[i] == win_index) {
@@ -262,6 +273,7 @@ void window_close(int win_index) {
     windows[win_index].custom_render = 0;
     windows[win_index].custom_click = 0;
     windows[win_index].custom_key = 0;
+    windows[win_index].on_close = 0;
     windows[win_index].user_data = 0;
     if (dragging_window == win_index) {
         dragging_window = -1;

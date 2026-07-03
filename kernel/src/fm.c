@@ -5,6 +5,7 @@
 #include <serial.h>
 #include <timer.h>
 #include <editor.h>
+#include <imageviewer.h>
 #include <taskbar.h>
 
 #define FM_TOOLBAR_HEIGHT 30
@@ -359,6 +360,23 @@ static void fm_on_rename_click(void) {
     fm_open_dialog(FM_DIALOG_RENAME, "Rename to:", fm_dialog_target_name);
 }
 
+/* Milestone 24.3: double-clicking a .BMP file opens the Image Viewer
+ * instead of the text editor. Case-insensitive since FAT 8.3 names are
+ * stored uppercase but a long (VFAT) name could be typed in any case. */
+static int fm_has_bmp_suffix(const char *name) {
+    int len = 0;
+    while (name[len]) len++;
+    if (len < 4) {
+        return 0;
+    }
+    const char *ext = name + len - 4;
+    char c0 = ext[0] >= 'a' && ext[0] <= 'z' ? (char)(ext[0] - 32) : ext[0];
+    char c1 = ext[1] >= 'a' && ext[1] <= 'z' ? (char)(ext[1] - 32) : ext[1];
+    char c2 = ext[2] >= 'a' && ext[2] <= 'z' ? (char)(ext[2] - 32) : ext[2];
+    char c3 = ext[3] >= 'a' && ext[3] <= 'z' ? (char)(ext[3] - 32) : ext[3];
+    return c0 == '.' && c1 == 'B' && c2 == 'M' && c3 == 'P';
+}
+
 static void fm_click(struct window *win, int64_t local_x, int64_t local_y) {
     (void)win;
     if (local_y < FM_LIST_TOP) {
@@ -398,7 +416,11 @@ static void fm_click(struct window *win, int64_t local_x, int64_t local_y) {
         serial_write_string("FM: double-click-to-open file \"");
         serial_write_string(path);
         serial_write_string("\"\n");
-        editor_open(path);
+        if (fm_has_bmp_suffix(e->name)) {
+            imageviewer_open(path);
+        } else {
+            editor_open(path);
+        }
     } else {
         fm_last_click_row = row;
         fm_last_click_tick = now;
