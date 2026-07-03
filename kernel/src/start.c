@@ -951,11 +951,11 @@ void _start(void) {
      * gradient (Milestone 15.2) if missing or malformed. */
     wallpaper_init();
 
-    /* Milestone 22.3: load persisted settings (wallpaper mode, File
-     * Manager geometry) - after wallpaper_init() so a persisted
-     * gradient_forced=1 correctly overrides whatever wallpaper_init() just
-     * decided, and before the desktop loop below ever creates the File
-     * Manager or renders a frame. */
+    /* Milestone 22.3: load persisted settings (wallpaper selection, File
+     * Manager geometry) - after wallpaper_init() so a persisted wallpaper
+     * selection correctly overrides whatever wallpaper_init() just decided,
+     * and before the desktop loop below ever creates the File Manager or
+     * renders a frame. */
     settings_load();
 
 #if defined(GOS_TEST_RTC)

@@ -10,7 +10,13 @@
 #define ENTRY_GAP 4
 #define FLASH_DURATION_TICKS (PIT_FREQUENCY_HZ * 2) /* ~2 seconds at 100Hz */
 #define FLASH_MESSAGE_MAX 64
-#define CLOCK_WIDTH 60
+/* "HH:MM:SS" is 8 characters; CLOCK_WIDTH must be at least 8*FONT_WIDTH
+ * (64px) or fb_draw_string_clipped() truncates the last digit(s) against
+ * its own clip rect. It was previously 60 (narrower than the text itself),
+ * which combined with CLOCK_RIGHT_MARGIN's old value of ENTRY_GAP (4px)
+ * left the clock visually touching the screen's right edge. */
+#define CLOCK_WIDTH 64
+#define CLOCK_RIGHT_MARGIN 14
 
 static uint8_t prev_buttons = 0;
 
@@ -134,7 +140,7 @@ void taskbar_render(void) {
     /* Milestone 22.2: a live clock, right-aligned in the taskbar. Updated
      * (at most) once per second - see clock_update_if_due()'s comment. */
     clock_update_if_due();
-    int64_t clock_x = (int64_t)fb_width() - CLOCK_WIDTH - ENTRY_GAP;
+    int64_t clock_x = (int64_t)fb_width() - CLOCK_WIDTH - CLOCK_RIGHT_MARGIN;
     fb_draw_string_clipped(clock_x, bar_y + (TASKBAR_HEIGHT - FONT_HEIGHT) / 2, clock_text,
                             fb_make_color(220, 220, 225), fb_make_color(40, 40, 45),
                             clock_x, bar_y, CLOCK_WIDTH, TASKBAR_HEIGHT);

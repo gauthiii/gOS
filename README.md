@@ -74,6 +74,7 @@ gOS targets a real (or emulated) x86_64 PC. The numbers below are the environmen
 - **RTC, taskbar clock & settings persistence (Track D, Phase 22):** a CMOS real-time-clock driver feeds a live taskbar clock, verified to advance exactly 10 seconds between two precisely-timed screendumps against a QEMU-controlled clock. A new `GOS.CFG` file persists the wallpaper choice (F2 toggles between the bundled BMP and a plain gradient) and the File Manager's window geometry, auto-saved on change and restored on the next boot — independently verified byte-for-byte via `xxd` on the raw file, not just gOS's own read-back — see [phase22.md](phase22.md)
 - **FAT32 long filename (VFAT) support (Track D, Phase 23):** filenames up to 63 ASCII characters now read, display, create, rename, and delete correctly, reconstructing/generating the VFAT long-name directory entries (checksum-linked to a generated `BASENAM~1.EXT`-style short alias) that were previously just skipped. Verified in both directions against `mtools` (`mdir`/`mtype`) — host-seeded long names read correctly by gOS, and gOS-created/renamed/deleted long names read correctly from the host afterward — with the full pre-existing regression suite unaffected — see [phase23.md](phase23.md)
 - **Shell, Calculator & Image Viewer (Track E, Phase 24):** a kernel-mode Terminal (`ls`/`cd`/`run <NAME.ELF>`/`help`/`clear`) whose `run` command performs a genuine ring-3 spawn-and-wait through Phase 20's real scheduler (`run Child.Elf` prints the exact exit code, 7, round-tripped from the ELF's own `SYS_EXIT`); a Calculator supporting integer `+ - x /` (verified against the milestone's own `1,2,+,7,= → 19` example, click for click); and an Image Viewer reusing Milestone 15.3's BMP decoder (extracted into a shared `bmp.c` module), opened by double-clicking any `.BMP` file in the File Manager and pixel-verified byte-for-byte against the source file via an independent Python decode. Found and fixed a real bug along the way: the Terminal's command parser was including its own echoed prompt text in the string it tried to execute — see [phase24.md](phase24.md)
+- **Desktop wallpaper picker & clock fix (Patch v2):** a right-click desktop context menu offers 5 wallpaper choices (Gradient, Default, plus 3 user-provided images converted from JPEG to gOS's supported BMP format, since there's no JPEG decoder - by the same scope choice Phase 15.3 made originally), replacing a previously hidden F2-only toggle; the taskbar clock's margin no longer touches the screen edge. Found and fixed two real bugs: the context menu could render partly off-screen near a corner, and two of the wallpaper options had their labels swapped relative to their images — see [phase-patchv2.md](phase-patchv2.md)
 
 ---
 
@@ -494,6 +495,26 @@ Double-clicking `WALLPAPR.BMP` opens it in a new window at native resolution, re
 
 ![Image Viewer showing the bundled wallpaper BMP](screenshots/phase24_debug_imgviewer.png)
 
+### Patch v2 — Desktop Wallpaper Picker, Taskbar Clock Margin & Wallpaper Mapping Fix
+
+**A discoverable, 5-option wallpaper picker** ([phase-patchv2.md](phase-patchv2.md), Rounds 1-2)
+Right-clicking the desktop opens a menu listing Gradient, Default, and 3 more images (originally provided as JPEG - converted to gOS's supported BMP format, since there's no JPEG decoder) - replacing a previously hidden F2-only toggle. The current selection is highlighted and persisted across reboots.
+
+![Wallpaper picker menu with all 5 options](screenshots/phase-patchv2_menu_5options.png)
+![A completely fresh boot defaulting to the bundled wallpaper](screenshots/phase-patchv2_default_boot.png)
+
+**Taskbar clock margin fixed** ([phase-patchv2.md](phase-patchv2.md), Round 3)
+The clock's display box was previously narrower than its own text, with too small a right margin - together making it look like it touched the screen's corner.
+
+![Taskbar clock with proper right margin](screenshots/phase-patchv2_clock_margin.png)
+
+**Mac/Custom wallpaper mapping fixed** ([phase-patchv2.md](phase-patchv2.md), Round 4)
+The "Mac" and "Custom" menu options had ended up pointing at each other's image - fixed so each label now shows the correct one.
+
+![Custom now showing the correct (portrait) image](screenshots/phase-patchv2_custom_correct.png)
+![Mac now showing the correct (abstract) image](screenshots/phase-patchv2_mac_correct.png)
+![Windows showing the classic Bliss-style wallpaper, unaffected by the swap](screenshots/phase-patchv2_windows_correct.png)
+
 ---
 
 ## Project structure
@@ -526,6 +547,8 @@ phase21.md           v2 Track D, Phase 1: window drag-to-resize + Alt+Tab switch
 phase22.md           v2 Track D, Phase 2: CMOS RTC + taskbar clock + GOS.CFG settings persistence
 phase23.md           v2 Track D, Phase 3: FAT32 long filename (VFAT) read/write support (Track D now complete)
 phase24.md           v2 Track E: kernel-mode Terminal (real ring-3 spawn), Calculator, Image Viewer (Track E now complete)
+phase-patchv2.md     Post-Phase-24 patch: desktop wallpaper picker (5 options), taskbar clock margin fix,
+                      Mac/Custom wallpaper mapping fix
 tools/userland/      standalone user-mode test programs (ring3_test.asm, hello.asm/user.ld,
                       spinner.asm/child.asm/parent.asm/proc.ld) - built independently of the
                       kernel, no libc/crt0

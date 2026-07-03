@@ -5,7 +5,12 @@
 
 #define SETTINGS_PATH "GOS.CFG"
 #define SETTINGS_MAGIC 0x47534F47u /* 'GOSG' little-endian in the file */
-#define SETTINGS_VERSION 1u
+/* Bumped 1 -> 2: the single gradient_forced boolean became a wallpaper
+ * option index (Gradient/Default/Custom/Mac/Windows). The version check
+ * below means a v1 file is treated as "wrong version" and ignored rather
+ * than misread - falling back to defaults (wallpaper option 1) is harmless
+ * and simpler than writing a v1->v2 migration for one byte. */
+#define SETTINGS_VERSION 2u
 
 /* Fixed-size binary record - deliberately simple (no text parsing) since
  * this is a from-scratch OS with no existing config-file convention to
@@ -14,7 +19,7 @@
 struct settings_record {
     uint32_t magic;
     uint32_t version;
-    uint8_t gradient_forced;
+    uint8_t wallpaper_selection;
     uint8_t reserved[7]; /* pad to 8-byte alignment for the fields below */
     int64_t fm_x, fm_y;
     uint64_t fm_w, fm_h;
@@ -38,14 +43,14 @@ void settings_load(void) {
         return;
     }
 
-    wallpaper_set_gradient_forced(rec.gradient_forced);
+    wallpaper_select(rec.wallpaper_selection);
     fm_x = rec.fm_x;
     fm_y = rec.fm_y;
     fm_w = rec.fm_w;
     fm_h = rec.fm_h;
 
-    serial_write_string("Settings: loaded " SETTINGS_PATH " - gradient_forced=");
-    serial_write_uint(rec.gradient_forced);
+    serial_write_string("Settings: loaded " SETTINGS_PATH " - wallpaper_selection=");
+    serial_write_uint(rec.wallpaper_selection);
     serial_write_string(" fm=(");
     serial_write_uint((uint64_t)fm_x);
     serial_write_string(",");
@@ -61,7 +66,7 @@ void settings_save(void) {
     struct settings_record rec;
     rec.magic = SETTINGS_MAGIC;
     rec.version = SETTINGS_VERSION;
-    rec.gradient_forced = (uint8_t)wallpaper_is_gradient_forced();
+    rec.wallpaper_selection = (uint8_t)wallpaper_current_selection();
     rec.reserved[0] = rec.reserved[1] = rec.reserved[2] = rec.reserved[3] = 0;
     rec.reserved[4] = rec.reserved[5] = rec.reserved[6] = 0;
     rec.fm_x = fm_x;

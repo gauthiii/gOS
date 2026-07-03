@@ -26,11 +26,31 @@
 #define ICON3_X (ICON2_X + ICON_SIZE + ICON_GAP)
 #define ICON3_Y ICON_Y
 
+/* Desktop right-click context menu: one row per wallpaper option (see
+ * wallpaper.h - Gradient plus every bundled BMP), giving the existing F2
+ * shortcut (kb_consume_toggle_wallpaper(), Milestone 22.3, which just
+ * cycles to the next option) a discoverable, direct-select on-screen home
+ * instead of being a hidden keyboard-only control. */
+#define MENU_ITEM_W 160
+#define MENU_ITEM_H 24
+
 static int fm_win_index = -1;
 static uint8_t prev_buttons = 0;
+static int menu_visible = 0;
+static int64_t menu_x, menu_y;
 
 static int fm_is_open(void) {
     return fm_win_index != -1 && window_get(fm_win_index) != 0;
+}
+
+static void select_wallpaper(int idx) {
+    wallpaper_select(idx);
+    settings_save();
+    serial_write_string("Desktop: wallpaper selection now ");
+    serial_write_uint((uint64_t)wallpaper_current_selection());
+    serial_write_string(" (");
+    serial_write_string(wallpaper_option_label(wallpaper_current_selection()));
+    serial_write_string(")\n");
 }
 
 void desktop_render(void) {
@@ -74,19 +94,41 @@ void desktop_render(void) {
         fb_draw_rect(ICON3_X + ICON_SIZE / 2 - 2, ICON3_Y + ICON_SIZE + 4 + FONT_HEIGHT + 3, 4, 4,
                      fb_make_color(255, 255, 255));
     }
+
+    if (menu_visible) {
+        int64_t menu_h = MENU_ITEM_H * WALLPAPER_OPTION_COUNT;
+        fb_draw_rect_outline(menu_x, menu_y, MENU_ITEM_W, (uint64_t)menu_h, fb_make_color(0, 0, 0), 1);
+        int current = wallpaper_current_selection();
+        for (int i = 0; i < WALLPAPER_OPTION_COUNT; i++) {
+            int64_t row_y = menu_y + (int64_t)i * MENU_ITEM_H;
+            uint32_t bg = (i == current) ? fb_make_color(80, 110, 150) : fb_make_color(60, 60, 70);
+            fb_draw_rect(menu_x, row_y, MENU_ITEM_W, MENU_ITEM_H, bg);
+            char label[24];
+            int p = 0;
+            if (i == current) {
+                label[p++] = '>';
+                label[p++] = ' ';
+            }
+            const char *opt = wallpaper_option_label(i);
+            for (int k = 0; opt[k] && p < (int)sizeof(label) - 1; k++) {
+                label[p++] = opt[k];
+            }
+            label[p] = '\0';
+            fb_draw_string_clipped(menu_x + 6, row_y + (MENU_ITEM_H - FONT_HEIGHT) / 2, label,
+                                    fb_make_color(255, 255, 255), bg,
+                                    menu_x, row_y, MENU_ITEM_W, MENU_ITEM_H);
+        }
+    }
 }
 
 void desktop_update(void) {
-    /* Milestone 22.3: F2 toggles the wallpaper mode and saves immediately -
-     * checked every frame regardless of mouse state, independent of the
-     * icon-click handling below. */
+    /* Milestone 22.3/24-patch: F2 cycles to the next wallpaper option and
+     * saves immediately - checked every frame regardless of mouse state,
+     * independent of the icon-click handling below. Kept as an alternate
+     * shortcut alongside the new right-click menu, not replaced by it. */
     if (kb_consume_toggle_wallpaper()) {
-        int now_forced = !wallpaper_is_gradient_forced();
-        wallpaper_set_gradient_forced(now_forced);
-        settings_save();
-        serial_write_string("Desktop: F2 - wallpaper gradient_forced now ");
-        serial_write_uint((uint64_t)now_forced);
-        serial_write_string("\n");
+        serial_write_string("Desktop: F2 pressed - ");
+        select_wallpaper((wallpaper_current_selection() + 1) % WALLPAPER_OPTION_COUNT);
     }
 
     /* Milestone 22.3: notice a drag/resize of the File Manager window and
@@ -105,7 +147,46 @@ void desktop_update(void) {
     int64_t my = mouse_y();
     uint8_t buttons = mouse_buttons();
     int left_pressed_edge = (buttons & MOUSE_LEFT_BUTTON) && !(prev_buttons & MOUSE_LEFT_BUTTON);
+    int right_pressed_edge = (buttons & MOUSE_RIGHT_BUTTON) && !(prev_buttons & MOUSE_RIGHT_BUTTON);
     prev_buttons = buttons;
+
+    if (right_pressed_edge) {
+        if (!window_point_hits_any(mx, my)) {
+            /* Right-clicking empty desktop (icons included - the menu
+             * applies regardless of what's under the cursor) opens the
+             * menu at the click point; right-clicking a window is ignored
+             * rather than repositioning/reopening the menu underneath it.
+             * Clamped so all WALLPAPER_OPTION_COUNT rows stay fully
+             * on-screen even when right-clicking near the bottom/right
+             * edge - a right-click low on a 1280x800+ screen previously
+             * opened a menu whose last rows were drawn past the visible
+             * area (and, worse, past the taskbar, entirely unclickable). */
+            int64_t menu_h = MENU_ITEM_H * WALLPAPER_OPTION_COUNT;
+            int64_t max_x = (int64_t)fb_width() - MENU_ITEM_W;
+            int64_t max_y = (int64_t)fb_height() - TASKBAR_HEIGHT - menu_h;
+            menu_visible = 1;
+            menu_x = mx > max_x ? max_x : mx;
+            menu_y = my > max_y ? max_y : my;
+            if (menu_x < 0) menu_x = 0;
+            if (menu_y < 0) menu_y = 0;
+        }
+        return;
+    }
+
+    if (left_pressed_edge && menu_visible) {
+        int64_t menu_h = MENU_ITEM_H * WALLPAPER_OPTION_COUNT;
+        if (mx >= menu_x && mx < menu_x + MENU_ITEM_W && my >= menu_y && my < menu_y + menu_h) {
+            int row = (int)((my - menu_y) / MENU_ITEM_H);
+            serial_write_string("Desktop: context menu - ");
+            select_wallpaper(row);
+        }
+        /* Any left click while the menu is open dismisses it, whether it
+         * hit an item or landed elsewhere - a single click either acts on
+         * the menu or closes it, never both an item action and, say, an
+         * icon launch underneath in the same click. */
+        menu_visible = 0;
+        return;
+    }
 
     if (!left_pressed_edge) {
         return;

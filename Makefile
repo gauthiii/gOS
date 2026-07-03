@@ -103,6 +103,9 @@ PROC_BINS := tools/userland/spin1.elf tools/userland/spin2.elf tools/userland/sp
              tools/userland/child.elf tools/userland/parent.elf
 DISK_RECIPE := truncate -s 64M $(DISK_IMG) && mformat -F -i $(DISK_IMG) -v GOSDISK :: && \
 	mcopy -i $(DISK_IMG) tools/wallpaper.bmp ::WALLPAPR.BMP && \
+	mcopy -i $(DISK_IMG) tools/custom.bmp ::CUSTOM.BMP && \
+	mcopy -i $(DISK_IMG) tools/mac.bmp ::MAC.BMP && \
+	mcopy -i $(DISK_IMG) tools/windows.bmp ::WINDOWS.BMP && \
 	mcopy -i $(DISK_IMG) tools/userland/hello.elf ::HELLO.ELF && \
 	mcopy -i $(DISK_IMG) tools/userland/spin1.elf ::SPIN1.ELF && \
 	mcopy -i $(DISK_IMG) tools/userland/spin2.elf ::SPIN2.ELF && \
@@ -125,7 +128,7 @@ check-disk-recipe:
 		rm -f $(DISK_IMG); \
 	fi
 
-$(DISK_IMG): tools/wallpaper.bmp tools/userland/hello.elf $(PROC_BINS)
+$(DISK_IMG): tools/wallpaper.bmp tools/custom.bmp tools/mac.bmp tools/windows.bmp tools/userland/hello.elf $(PROC_BINS)
 	@mkdir -p disk_images
 	$(DISK_RECIPE)
 

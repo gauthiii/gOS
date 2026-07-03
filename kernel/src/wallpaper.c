@@ -6,50 +6,117 @@
 #include <bmp.h>
 #include <stdint.h>
 
-#define WALLPAPER_PATH "WALLPAPR.BMP"
+/* Index 0 (gradient) has no file; NULL is only ever dereferenced after
+ * checking idx > 0 below.
+ *
+ * NOTE: the "Custom"/"Mac" labels are intentionally paired with the
+ * opposite-sounding file (MAC.BMP under "Custom", CUSTOM.BMP under "Mac")
+ * - a patch-v2 fix for a mixup where the two bundled images ended up
+ * associated with the wrong menu label. The on-disk file NAMES were kept
+ * as originally bundled; only this mapping changed. See phase-patchv2.md. */
+static const char *wallpaper_paths[WALLPAPER_OPTION_COUNT] = {
+    0, "WALLPAPR.BMP", "MAC.BMP", "CUSTOM.BMP", "WINDOWS.BMP"
+};
+static const char *wallpaper_labels[WALLPAPER_OPTION_COUNT] = {
+    "Gradient", "Default", "Custom", "Mac", "Windows"
+};
 
 /* Converted, screen-format pixels (fb_make_color applied once at load
  * time), img_w * img_h entries, top-down row order. NULL until a BMP loads
- * successfully. */
+ * successfully (including whenever the gradient is selected). */
 static uint32_t *image_pixels;
 static uint64_t img_w, img_h;
-static int gradient_forced = 0;
+static int current_selection = 0;
 
-void wallpaper_init(void) {
+static int load_option(int idx) {
+    const char *path = wallpaper_paths[idx];
     struct fat_dirent ent;
-    if (!fat_resolve_path(WALLPAPER_PATH, &ent) || (ent.attr & FAT32_ATTR_DIRECTORY)) {
-        serial_write_string("Wallpaper: " WALLPAPER_PATH " not found - using gradient fallback\n");
-        return;
+    if (!fat_resolve_path(path, &ent) || (ent.attr & FAT32_ATTR_DIRECTORY)) {
+        serial_write_string("Wallpaper: ");
+        serial_write_string(path);
+        serial_write_string(" not found\n");
+        return 0;
     }
     uint8_t *buf = (uint8_t *)kmalloc(ent.size);
     if (!buf) {
-        serial_write_string("Wallpaper: kmalloc for file buffer failed - using gradient fallback\n");
-        return;
+        serial_write_string("Wallpaper: kmalloc for file buffer failed\n");
+        return 0;
     }
-    int64_t got = fat_read_file(WALLPAPER_PATH, buf, ent.size);
-    if (got != (int64_t)ent.size || !bmp_decode(buf, ent.size, &image_pixels, &img_w, &img_h)) {
-        serial_write_string("Wallpaper: load failed - using gradient fallback\n");
-        kfree(buf);
-        return;
+    uint32_t *pixels = 0;
+    uint64_t w = 0, h = 0;
+    int64_t got = fat_read_file(path, buf, ent.size);
+    int ok = (got == (int64_t)ent.size) && bmp_decode(buf, ent.size, &pixels, &w, &h);
+    kfree(buf);
+    if (!ok) {
+        serial_write_string("Wallpaper: failed to decode ");
+        serial_write_string(path);
+        serial_write_string("\n");
+        return 0;
     }
-    kfree(buf); /* pixels were converted into image_pixels; raw file no longer needed */
-    serial_write_string("Wallpaper: loaded " WALLPAPER_PATH " (");
+
+    if (image_pixels) {
+        kfree(image_pixels);
+    }
+    image_pixels = pixels;
+    img_w = w;
+    img_h = h;
+    serial_write_string("Wallpaper: loaded ");
+    serial_write_string(path);
+    serial_write_string(" (");
     serial_write_uint(img_w);
     serial_write_string("x");
     serial_write_uint(img_h);
     serial_write_string(", 24bpp BMP)\n");
+    return 1;
+}
+
+void wallpaper_select(int idx) {
+    if (idx < 0 || idx >= WALLPAPER_OPTION_COUNT) {
+        serial_write_string("Wallpaper: wallpaper_select() ignored - index out of range\n");
+        return;
+    }
+    if (idx == 0) {
+        if (image_pixels) {
+            kfree(image_pixels);
+            image_pixels = 0;
+        }
+        current_selection = 0;
+        serial_write_string("Wallpaper: selected Gradient\n");
+        return;
+    }
+    if (load_option(idx)) {
+        current_selection = idx;
+    } else {
+        serial_write_string("Wallpaper: selection unchanged - using gradient fallback\n");
+        if (image_pixels) {
+            kfree(image_pixels);
+            image_pixels = 0;
+        }
+        current_selection = 0;
+    }
+}
+
+void wallpaper_init(void) {
+    /* Milestone 15.3's original default: try the bundled wallpaper (option
+     * 1), fall back to the gradient (option 0) if it's missing/malformed.
+     * settings_load() (Milestone 22.3) may immediately override this with
+     * whatever was last persisted. */
+    wallpaper_select(1);
 }
 
 int wallpaper_image_loaded(void) {
     return image_pixels != 0;
 }
 
-void wallpaper_set_gradient_forced(int forced) {
-    gradient_forced = forced ? 1 : 0;
+int wallpaper_current_selection(void) {
+    return current_selection;
 }
 
-int wallpaper_is_gradient_forced(void) {
-    return gradient_forced;
+const char *wallpaper_option_label(int idx) {
+    if (idx < 0 || idx >= WALLPAPER_OPTION_COUNT) {
+        return "?";
+    }
+    return wallpaper_labels[idx];
 }
 
 /* Milestone 15.2 fallback / base layer: vertical gradient from deep blue
@@ -69,7 +136,7 @@ void wallpaper_render(void) {
     uint64_t sw = fb_width();
     uint64_t sh = fb_height();
 
-    if (!image_pixels || gradient_forced) {
+    if (!image_pixels) {
         render_gradient();
         return;
     }

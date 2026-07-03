@@ -4,18 +4,18 @@
 #include <stdint.h>
 
 /* Milestone 22.3: persists a small set of user preferences to GOS.CFG on
- * the FAT32 root - the wallpaper mode (gradient-forced or not) and the
- * File Manager window's last-known geometry, the two things Phase 21/15
- * actually made meaningful to remember (see phase22.md for why these two
- * specifically, and why "settings" doesn't cover more than this yet). */
+ * the FAT32 root - the wallpaper selection (see wallpaper.h) and the File
+ * Manager window's last-known geometry, the things Phase 21/15/24 actually
+ * made meaningful to remember (see phase22.md for why these specifically,
+ * and why "settings" doesn't cover more than this yet). */
 
 #define SETTINGS_DEFAULT_FM_X 120
 #define SETTINGS_DEFAULT_FM_Y 60
 #define SETTINGS_DEFAULT_FM_W 420
 #define SETTINGS_DEFAULT_FM_H 260
 
-/* Loads GOS.CFG if present and applies it (wallpaper_set_gradient_forced()
- * is called directly; FM geometry is just cached for settings_fm_x() etc.
+/* Loads GOS.CFG if present and applies it (wallpaper_select() is called
+ * directly; FM geometry is just cached for settings_fm_x() etc.
  * to return, since the FM window doesn't exist yet at boot time - it's
  * applied when desktop.c actually creates it). Falls back silently to the
  * compiled-in defaults above if the file is missing or malformed - this is

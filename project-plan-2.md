@@ -333,6 +333,19 @@ Audio and networking were explicitly scoped **out** of this plan — both are la
 
 ---
 
+### Patch v2 — Desktop Wallpaper Picker, Taskbar Clock Margin & Wallpaper Mapping Fix ✅ Complete — see [phase-patchv2.md](phase-patchv2.md)
+
+Four rounds of ad hoc, user-requested fixes/enhancements after Phase 24 shipped - not a numbered phase, since none of it was planned in advance, but documented and tested to the same standard.
+
+- [x] **Round 1:** discoverable wallpaper control - a desktop right-click context menu (user's choice over a 4th icon or a text hint), replacing the previously hidden F2-only toggle; cleared a stale test-session `GOS.CFG` from the disk image
+- [x] **Round 2:** multi-wallpaper support - 3 user-provided JPEGs converted to gOS's required bottom-up 24bpp BMP format (no JPEG decoder written - out of scope by the same reasoning Phase 15.3 used to reject PNG/JPEG originally); wallpaper selection extended from a boolean to a 5-option table; `GOS.CFG` format version bumped 1→2
+- [x] **Round 3:** taskbar clock margin fix - the clock's display box was narrower than its own text, with too small a right margin, together making it look like it touched the screen edge
+- [x] **Round 4:** removed the now-unused source JPEGs; fixed a real bug where the "Mac" and "Custom" menu labels pointed at each other's bundled image
+
+**Patch v2 exit criterion:** ✅ a discoverable 5-option wallpaper picker (Gradient/Default/Custom/Mac/Windows), each option correctly labeled and pixel-confirmed via screendump; the taskbar clock no longer touches the screen edge; the context menu itself never renders off-screen (a real bug found and fixed during testing); no obsolete source assets remain; `make diagnostic` unaffected. Full writeup: [phase-patchv2.md](phase-patchv2.md).
+
+---
+
 ## 5. Estimated Time Summary
 
 Assuming the same ~7.5 hrs/week pace as the v1 plan:
@@ -434,6 +447,10 @@ Assuming the same ~7.5 hrs/week pace as the v1 plan:
 | 24 | 24.1 Shell | Interactive shell (user-mode, or kernel-mode fallback) | Done | Kernel-mode Terminal (user-confirmed fallback); `run` genuinely spawns ring-3 ELF via `process_spawn`+`scheduler_run_until_done`, exact exit code round-tripped — see [phase24.md](phase24.md) |
 | 24 | 24.2 Calculator | Window-based calculator app | Done | 4x4 button grid; `1,2,+,7,=` → `19` verified via real click sequence, matching milestone's own example |
 | 24 | 24.3 Image viewer | BMP viewer reusing Phase 15.3's decoder | Done | Decoder extracted to shared `kernel/src/bmp.c`; opened via real FM double-click; pixel-verified byte-for-byte vs source BMP via independent Python decode |
+| Patch v2 | Round 1 | Discoverable desktop right-click wallpaper menu | Done | Replaces hidden F2-only toggle; stale test `GOS.CFG` cleared — see [phase-patchv2.md](phase-patchv2.md) |
+| Patch v2 | Round 2 | Multi-wallpaper support (3 JPEGs converted to BMP, 5-option menu) | Done | `GOS.CFG` format v1→v2; no JPEG decoder written, converted on host instead |
+| Patch v2 | Round 3 | Taskbar clock right-margin fix | Done | `CLOCK_WIDTH` 60→64, dedicated `CLOCK_RIGHT_MARGIN` 14px |
+| Patch v2 | Round 4 | Removed obsolete JPEGs; fixed Mac/Custom label-to-file swap | Done | Both selections screendump-confirmed correct after swap |
 
 ---
 
