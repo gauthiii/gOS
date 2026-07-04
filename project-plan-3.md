@@ -86,41 +86,41 @@ Every fix in Phases 25–27 follows the same standard, matching `audit2.md`'s ow
 
 ---
 
-### Phase 26 — Audit 2: High-Severity Fixes
+### Phase 26 — Audit 2: High-Severity Fixes ✅ Complete — see [phase26.md](phase26.md)
 **Estimated time: 14–20 hours (~2–2.5 weeks)**
 
 **Milestone 26.1: Free partially-built address space on `process_spawn()` failure**
-- [ ] In `kernel/src/process.c`, track every physical page and page-table page allocated so far during a `process_spawn()` attempt; on any failure path (a `map_and_fill_page` call failing, the kernel-stack `kmalloc` failing), free all of it — including `pml4_phys` itself — before returning -1
-- [ ] Reproduce first: force a late-stage `map_and_fill_page` failure (e.g. a debug hook that fails the Nth call) during spawn; confirm (pre-fix) PMM free-page count doesn't return to baseline after the failed spawn
-- [ ] Test: same forced-failure scenario, post-fix; confirm free-page count returns exactly to baseline after a failed spawn attempt
+- [x] In `kernel/src/process.c`, track every physical page and page-table page allocated so far during a `process_spawn()` attempt; on any failure path (a `map_and_fill_page` call failing, the kernel-stack `kmalloc` failing), free all of it — including `pml4_phys` itself — before returning -1
+- [x] Reproduce first: force a late-stage `map_and_fill_page` failure (e.g. a debug hook that fails the Nth call) during spawn; confirm (pre-fix) PMM free-page count doesn't return to baseline after the failed spawn
+- [x] Test: same forced-failure scenario, post-fix; confirm free-page count returns exactly to baseline after a failed spawn attempt
 
 **Milestone 26.2: `SYS_KILL` + a way for Terminal's `run` to use it**
-- [ ] Add a `SYS_KILL`-equivalent kernel-callable function (`process_kill(pid)`, tearing down via 25.2's new cleanup path) and a syscall wrapper for future ring-3 use
-- [ ] Give the Terminal (`kernel/src/terminal.c`) either a hard timeout on `run` (e.g. a maximum tick count passed to a bounded variant of `scheduler_run_until_done()`) or a way to interrupt the blocking wait on a keypress (e.g. Ctrl+C checked between scheduler slices), calling `process_kill()` on timeout/interrupt instead of blocking forever
-- [ ] Reproduce first: `run` a debug-only ELF with an intentional infinite loop (never calling `SYS_EXIT`); confirm (pre-fix) this freezes the entire desktop with no recovery
-- [ ] Test: same infinite-loop ELF, post-fix; confirm the Terminal recovers (via timeout or Ctrl+C) within a bounded time, the process is actually killed (verified via `process_get()->state` and a PMM free-page count returning to baseline per 25.2/26.1's cleanup), and the desktop remains fully responsive throughout
+- [x] Add a `SYS_KILL`-equivalent kernel-callable function (`process_kill(pid)`, tearing down via 25.2's new cleanup path) and a syscall wrapper for future ring-3 use
+- [x] Give the Terminal (`kernel/src/terminal.c`) either a hard timeout on `run` (e.g. a maximum tick count passed to a bounded variant of `scheduler_run_until_done()`) or a way to interrupt the blocking wait on a keypress (e.g. Ctrl+C checked between scheduler slices), calling `process_kill()` on timeout/interrupt instead of blocking forever
+- [x] Reproduce first: `run` a debug-only ELF with an intentional infinite loop (never calling `SYS_EXIT`); confirm (pre-fix) this freezes the entire desktop with no recovery
+- [x] Test: same infinite-loop ELF, post-fix; confirm the Terminal recovers (via timeout or Ctrl+C) within a bounded time, the process is actually killed (verified via `process_get()->state` and a PMM free-page count returning to baseline per 25.2/26.1's cleanup), and the desktop remains fully responsive throughout
 
 **Milestone 26.3: `SYS_WAITPID` parent-pid ownership check**
-- [ ] In `kernel/src/syscall.c`'s `SYS_WAITPID` handler, reject (return -1, "not your child") any `waitpid` call where `target->parent_pid != scheduler_current_pid()`
-- [ ] Reproduce first: two sibling test ELFs where one calls `waitpid` on the other's pid (not its own child); confirm (pre-fix) the non-parent successfully reaps the zombie and steals its exit code, leaving the real parent's own later `waitpid` returning -1 forever
-- [ ] Test: same two-sibling scenario, post-fix; confirm the non-parent's `waitpid` is rejected, and the real parent still successfully reaps its own child with the correct exit code afterward
+- [x] In `kernel/src/syscall.c`'s `SYS_WAITPID` handler, reject (return -1, "not your child") any `waitpid` call where `target->parent_pid != scheduler_current_pid()`
+- [x] Reproduce first: two sibling test ELFs where one calls `waitpid` on the other's pid (not its own child); confirm (pre-fix) the non-parent successfully reaps the zombie and steals its exit code, leaving the real parent's own later `waitpid` returning -1 forever
+- [x] Test: same two-sibling scenario, post-fix; confirm the non-parent's `waitpid` is rejected, and the real parent still successfully reaps its own child with the correct exit code afterward
 
 **Milestone 26.4: Fix `write_named_entry`'s multi-slot LFN write partial-failure sentinel**
-- [ ] Restructure the LFN-plus-SFN write loop (`kernel/src/fat32.c`) so a partial failure can't leave a `0x00` first-byte sentinel ahead of later still-valid entries in the same cluster — e.g. write in an order (or with a final commit step) such that any prefix of the write sequence that completes is itself a valid, fully-scannable state, or explicitly detect and repair a stray sentinel on the next directory scan
-- [ ] Reproduce first: fault-inject a mid-sequence `write_dirent_at` failure during a long-filename create in a directory that already has valid entries positioned after the reused slot run; confirm (pre-fix) via `mdir`/`fat_list_dir` that those later entries become invisible
-- [ ] Test: same scenario, post-fix; confirm all previously-existing entries remain listed/resolvable regardless of where the fault-injected failure lands in the write sequence
+- [x] Restructure the LFN-plus-SFN write loop (`kernel/src/fat32.c`) so a partial failure can't leave a `0x00` first-byte sentinel ahead of later still-valid entries in the same cluster — e.g. write in an order (or with a final commit step) such that any prefix of the write sequence that completes is itself a valid, fully-scannable state, or explicitly detect and repair a stray sentinel on the next directory scan
+- [x] Reproduce first: fault-inject a mid-sequence `write_dirent_at` failure during a long-filename create in a directory that already has valid entries positioned after the reused slot run; confirm (pre-fix) via `mdir`/`fat_list_dir` that those later entries become invisible
+- [x] Test: same scenario, post-fix; confirm all previously-existing entries remain listed/resolvable regardless of where the fault-injected failure lands in the write sequence
 
 **Milestone 26.5: Fix desktop right-click menu z-order and hit-test correctness**
-- [ ] Move the context menu's rendering to *after* `window_composite()` in the frame order (true top-layer overlay, matching how the mouse cursor is already drawn last), and make the open-menu guard check the menu's full post-clamp footprint against every open window's rect, not just the click pixel
-- [ ] Reproduce first: right-click on empty desktop immediately beside an open window such that the (unclamped) menu position would overlap that window; confirm (pre-fix) via screendump that part of the menu renders invisibly underneath the window, and that a click in that invisible region still triggers `select_wallpaper()`
-- [ ] Test: same scenario, post-fix; confirm via screendump the menu is always fully visible (either drawn on top of the window, or repositioned/suppressed to avoid the overlap), with no click-through to a hidden menu row
+- [x] Move the context menu's rendering to *after* `window_composite()` in the frame order (true top-layer overlay, matching how the mouse cursor is already drawn last), and make the open-menu guard check the menu's full post-clamp footprint against every open window's rect, not just the click pixel
+- [x] Reproduce first: right-click on empty desktop immediately beside an open window such that the (unclamped) menu position would overlap that window; confirm (pre-fix) via screendump that part of the menu renders invisibly underneath the window, and that a click in that invisible region still triggers `select_wallpaper()`
+- [x] Test: same scenario, post-fix; confirm via screendump the menu is always fully visible (either drawn on top of the window, or repositioned/suppressed to avoid the overlap), with no click-through to a hidden menu row
 
 **Milestone 26.6: Terminal prompt-boundary guard**
-- [ ] Add a tracked "prompt end offset" to the Terminal's window state, set every time a prompt is printed; make the textbox backspace handler (shared in `kernel/src/window.c`, or a Terminal-specific override via `custom_key`) refuse to delete past that offset
-- [ ] Reproduce first: type `ls`, press Enter, then backspace repeatedly through the new prompt and into the previous line's output, then type a command; confirm (pre-fix) the resulting parsed command is corrupted/unintended per the audit's traced scenario
-- [ ] Test: same backspace-through-prompt sequence, post-fix; confirm backspacing stops at the prompt boundary (or is simply a no-op past it), and the next command parses exactly as typed
+- [x] Add a tracked "prompt end offset" to the Terminal's window state, set every time a prompt is printed; make the textbox backspace handler (shared in `kernel/src/window.c`, or a Terminal-specific override via `custom_key`) refuse to delete past that offset
+- [x] Reproduce first: type `ls`, press Enter, then backspace repeatedly through the new prompt and into the previous line's output, then type a command; confirm (pre-fix) the resulting parsed command is corrupted/unintended per the audit's traced scenario
+- [x] Test: same backspace-through-prompt sequence, post-fix; confirm backspacing stops at the prompt boundary (or is simply a no-op past it), and the next command parses exactly as typed
 
-**Phase 26 exit criterion:** all 6 High findings closed, each with a QEMU-verified reproduction-then-fix test passing.
+**Phase 26 exit criterion:** ✅ all 6 High findings closed, each with a QEMU-verified reproduction-then-fix test passing. The legitimate parent/child `waitpid` case (Phase 20's original `PARENT.ELF`/`CHILD.ELF` demo) was re-confirmed unaffected by 26.3's ownership check. A test-design issue (not a kernel bug) was found and corrected: extending fault injection to `write_dirent_at` for 26.4 shifted where a shared countdown landed in an existing 25.3 test, fixed by adjusting the test's own countdown value. `make diagnostic` unaffected. Full writeup: [phase26.md](phase26.md).
 
 ---
 
@@ -422,12 +422,12 @@ Assuming the same ~7.5 hrs/week pace as v1/v2:
 | 25 | 25.4 fat_delete reordering | QEMU test: fault-injected erase failure, no double-alloc | Done | DELTEST.TXT still resolvable after failed delete |
 | 25 | 25.5 BMP dimension bound | Bound w/h before row-stride/alloc arithmetic | Done | BMP_MAX_DIMENSION=4096, checked before any arithmetic |
 | 25 | 25.5 BMP dimension bound | QEMU test: crafted-dimension BMP rejected cleanly | Done | 100000x100000-claiming BMP correctly rejected |
-| 26 | 26.1 process_spawn cleanup | Free partial address space on spawn failure | Not Started | |
-| 26 | 26.2 SYS_KILL + Terminal integration | Add kill mechanism + timeout/interrupt in run | Not Started | |
-| 26 | 26.3 waitpid ownership | Reject non-parent waitpid calls | Not Started | |
-| 26 | 26.4 LFN multi-slot write fix | Fix partial-failure 0x00 sentinel hiding entries | Not Started | |
-| 26 | 26.5 Desktop menu z-order | Draw menu after windows, fix hit-test footprint | Not Started | |
-| 26 | 26.6 Terminal prompt guard | Block backspace past prompt boundary | Not Started | |
+| 26 | 26.1 process_spawn cleanup | Free partial address space on spawn failure | Done | `vmm_destroy_process_pml4()` reused; pmm_free_pages() exact-match after forced failure — see [phase26.md](phase26.md) |
+| 26 | 26.2 SYS_KILL + Terminal integration | Add kill mechanism + timeout/interrupt in run | Done | Scheduler watchdog (5s budget) via `process_kill()`; INFLOOP.ELF killed, desktop stayed responsive |
+| 26 | 26.3 waitpid ownership | Reject non-parent waitpid calls | Done | WPTEST.ELF: all non-parent attempts rejected; legit PARENT/CHILD case unaffected (PARENT_GOT:7) |
+| 26 | 26.4 LFN multi-slot write fix | Fix partial-failure 0x00 sentinel hiding entries | Done | `rollback_partial_entries()`; sentinels + entry count unaffected by fault-injected partial write |
+| 26 | 26.5 Desktop menu z-order | Draw menu after windows, fix hit-test footprint | Done | `desktop_render_menu_overlay()`; menu now renders on top of windows, screendump-verified |
+| 26 | 26.6 Terminal prompt guard | Block backspace past prompt boundary | Done | 40 backspaces couldn't erase the 3-char prompt; next command parsed cleanly |
 | 27 | 27.1 Calculator fixes | Sign handling + overflow guard | Not Started | |
 | 27 | 27.2 Heap backward coalescing | Extend kfree to merge backward | Not Started | |
 | 27 | 27.3 Config checksum + geometry check | GOS.CFG checksum, FM geometry sanity check | Not Started | |

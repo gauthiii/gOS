@@ -21,7 +21,11 @@
       "Bash(mv screenshots/phase24b_default_boot_bmp.png screenshots/phase-patchv2_default_boot.png)",
       "Bash(grep -n \"^## 6. Status Tracker\\\\|^## 7\\\\|^---$\" project-plan-2.md)",
       "Bash(git status *)",
-      "Bash(git ls-files *)"
+      "Bash(git ls-files *)",
+      "Bash(mv kernel/src/start.c.bak /tmp/start.c.bak.discard)",
+      "Bash(sed -i '' 's/for \\(int i = 0; i < 2; i++\\) {/for \\(int i = 0; i < 10; i++\\) {/' kernel/src/start.c)",
+      "Bash(git diff *)",
+      "Bash(git check-ignore *)"
     ]
   }
 }

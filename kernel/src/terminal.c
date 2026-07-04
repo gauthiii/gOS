@@ -12,6 +12,15 @@ static int term_win = -1;
  * same convention fat_resolve_path's own path-splitting expects. */
 static char term_cwd[200] = "";
 
+/* Milestone 26.6 (audit2 High #11): textbox_length at the moment the most
+ * recent prompt finished printing - the boundary backspace must not cross.
+ * Without this, the shared textbox backspace handler (kernel/src/window.c)
+ * has no concept of "you can't erase the prompt itself", so backspacing
+ * enough times deletes through the freshly-printed prompt and into prior
+ * scrollback, corrupting terminal_on_key()'s prompt-strip string
+ * comparison for the next command typed. */
+static int prompt_end_offset = 0;
+
 static void term_append(struct window *win, const char *s) {
     while (*s && win->textbox_length < TEXTBOX_BUFFER_SIZE - 1) {
         win->textbox_buffer[win->textbox_length++] = *s++;
@@ -23,6 +32,7 @@ static void term_print_prompt(struct window *win) {
     term_append(win, "\n/");
     term_append(win, term_cwd);
     term_append(win, "> ");
+    prompt_end_offset = win->textbox_length;
 }
 
 /* Splits the last (currently-being-typed) line out of the textbox buffer -
@@ -185,8 +195,18 @@ static void run_run(struct window *win, const char *arg) {
     struct process *p = process_get(pid);
     term_append(win, "\nprocess ");
     append_int(win, pid);
-    term_append(win, " exited with code ");
-    append_int(win, p ? p->exit_code : -1);
+    /* Milestone 26.2 (audit2 High #7): -2 is process_kill()'s
+     * distinguishable "forcibly terminated" exit code - a process that
+     * never called SYS_EXIT (e.g. an infinite loop) was killed by the
+     * scheduler's watchdog after overstaying its time budget, rather than
+     * exiting normally; say so explicitly instead of reporting -2 as if
+     * it were some ordinary chosen exit code. */
+    if (p && p->exit_code == -2) {
+        term_append(win, " was killed (did not exit within the time budget)");
+    } else {
+        term_append(win, " exited with code ");
+        append_int(win, p ? p->exit_code : -1);
+    }
 }
 
 static void run_help(struct window *win) {
@@ -194,6 +214,15 @@ static void run_help(struct window *win) {
 }
 
 static int terminal_on_key(struct window *win, char c) {
+    if (c == '\b') {
+        /* Milestone 26.6: refuse to backspace at or before the prompt
+         * boundary - consumed (return 1) so the default handler's own
+         * backspace logic never runs for this keypress. */
+        if (win->textbox_length <= prompt_end_offset) {
+            return 1;
+        }
+        return 0; /* still within the typed command - let default backspace handle it */
+    }
     if (c != '\n') {
         return 0; /* let default typing (append/backspace) handle everything else */
     }

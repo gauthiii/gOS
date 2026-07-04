@@ -783,6 +783,10 @@ static int find_free_slot_n(uint32_t dir_cluster, int need_count, struct dirent_
     }
 }
 
+#if defined(GOS_TEST_FAULT_INJECT)
+static int test_should_fail_write(void);
+#endif
+
 /* `entry` points at either a struct fat_dir_entry_raw or a struct
  * fat_lfn_entry_raw - both are exactly 32 bytes (verified by construction),
  * so a plain byte copy works for either. */
@@ -795,6 +799,16 @@ static int write_dirent_at(struct dirent_location *loc, const void *entry) {
     for (uint32_t i = 0; i < sizeof(struct fat_dir_entry_raw); i++) {
         sector[loc->offset_in_sector + i] = raw[i];
     }
+#if defined(GOS_TEST_FAULT_INJECT)
+    /* Milestone 26.4: shares the same fault-injection countdown erase_
+     * write_sector() uses, so a single test hook can simulate a write
+     * failure anywhere in the create/rename/delete write path, not just
+     * the erase path Milestone 25.3/25.4 originally added it for. */
+    if (test_should_fail_write()) {
+        serial_write_string("FAT32: [fault injection] simulated write failure\n");
+        return 0;
+    }
+#endif
     return ata_write_sector(loc->sector_lba, sector);
 }
 
@@ -970,6 +984,27 @@ static int generate_short_alias(uint32_t parent_cluster, const char *name, uint8
     return 0;
 }
 
+/* Milestone 26.4 (audit2 High #9): marks the first `count` 32-byte slots
+ * starting at `first` as deleted (0xE5) - used to roll back whatever this
+ * attempt already committed of a multi-slot LFN write, so a mid-sequence
+ * failure can't leave entries that look like a valid (but truncated,
+ * checksum-orphaned) LFN run sitting in the directory. Best-effort: if a
+ * rollback write itself fails, that single slot is left in its
+ * partially-committed state (a narrower, already-logged failure mode - see
+ * fat_rename's own bounded-retry precedent - rather than looping forever). */
+static void rollback_partial_entries(struct dirent_location first, int count) {
+    static uint8_t blank[sizeof(struct fat_dir_entry_raw)];
+    for (uint32_t i = 0; i < sizeof(blank); i++) blank[i] = 0;
+    blank[0] = 0xE5;
+    for (int i = 0; i < count; i++) {
+        struct dirent_location loc;
+        loc_advance(first, i, &loc);
+        if (!write_dirent_at(&loc, blank)) {
+            serial_write_string("FAT32: WARNING - could not roll back a partially-written LFN entry after a write failure\n");
+        }
+    }
+}
+
 /* Writes a new directory entry named `name` (generating and writing the
  * necessary VFAT long-name entries first if the name doesn't fit 8.3) into
  * `parent_cluster`, pointing at `data_cluster`/`file_size` with the given
@@ -1030,6 +1065,17 @@ static int write_named_entry(uint32_t parent_cluster, const char *name, uint8_t 
         lfn.first_cluster = 0;
         lfn_pack_chars(name, name_len, (e - 1) * FAT32_LFN_CHARS_PER_ENTRY, &lfn);
         if (!write_dirent_at(&eloc, &lfn)) {
+            /* Milestone 26.4 (audit2 High #9): a slot we haven't reached
+             * yet still holds whatever it held before this call (0x00 if
+             * it was unused tail space, 0xE5 if it was a reused deleted
+             * slot) - we never introduce a NEW 0x00 ourselves. But the
+             * slots we DID already write in THIS attempt now look like
+             * valid, committed LFN entries (non-zero first byte, attr
+             * 0x0F) even though the overall write never completed. Mark
+             * every one of them back to 0xE5 (deleted) so a directory
+             * scan sees a clean "these slots are free" instead of a
+             * dangling, checksum-orphaned partial LFN run. */
+            rollback_partial_entries(slot, idx);
             return 0;
         }
     }
@@ -1044,6 +1090,7 @@ static int write_named_entry(uint32_t parent_cluster, const char *name, uint8_t 
     entry.fst_clus_lo = (uint16_t)(data_cluster & 0xFFFF);
     entry.file_size = file_size;
     if (!write_dirent_at(&sfn_loc, &entry)) {
+        rollback_partial_entries(slot, num_entries); /* all num_entries LFN slots were committed; roll them all back */
         return 0;
     }
     *out_loc = sfn_loc;

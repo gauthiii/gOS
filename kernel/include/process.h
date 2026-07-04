@@ -38,6 +38,14 @@ void process_init(void);
  * (file not found, malformed ELF, out of memory, or process table full). */
 int process_spawn(const char *path);
 
+#if defined(GOS_TEST_FAULT_INJECT)
+/* Milestone 26.1 debug-only hook: makes the Nth subsequent page allocation
+ * during process_spawn()'s mapping loop fail (0 = the very next one),
+ * simulating PMM exhaustion at an exact point to test that the failure
+ * path frees everything already mapped so far instead of leaking it. */
+void process_test_inject_spawn_failure(int after_n_pages);
+#endif
+
 struct process *process_get(int pid);
 int process_count_active(void); /* READY or RUNNING, not ZOMBIE/UNUSED */
 
@@ -55,6 +63,15 @@ int process_count_active(void); /* READY or RUNNING, not ZOMBIE/UNUSED */
  * zeroed and vmm_destroy_process_pml4/kfree are both no-ops on 0/NULL in
  * every path this codebase exercises). */
 void process_free_resources(int pid);
+
+/* Milestone 26.2 (audit2 High #7): forcibly terminates a still-running/
+ * still-ready process (marks it ZOMBIE with a distinguishable exit code,
+ * -2, and immediately reclaims its resources). No-op on an already-
+ * unused/zombie/invalid pid. Used by the scheduler's own watchdog to end
+ * a `run`-launched infinite loop after a bounded time budget - not
+ * currently exposed as a ring-3 syscall (that's Phase 29's job, once a
+ * real user-mode shell has a reason to kill another process itself). */
+void process_kill(int pid);
 
 /* Runs the scheduler (real timer-driven preemption) until every spawned
  * process has reached PROC_ZOMBIE, then returns - the calling kernel code

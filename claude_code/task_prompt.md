@@ -1,12 +1,12 @@
-### Now do Phase 23 the same way and create phase23.md in the same format as the previous phase docs. 
+### Now do Phase 25 the same way and create phase25.md in the same format as the previous phase docs. 
 
-In phase23.md, after every milestone, include: 
+In phase25.md, after every milestone, include: 
 
 - (1) a "command to test" that verifies it works and shows the expected output, and 
 - (2) a "command to see" that lets me visually/interactively observe the result (screendump-and-open for graphical output, or a live -display cocoa command for interactive verification). 
 - Save any screenshots taken during testing into a screenshots/ folder at the project root. 
 
-### Update project-plan-2.md's status tracker and checkboxes. 
+### Update project-plan-3.md's status tracker and checkboxes. 
 
 Always actually test that something works — including cross-checking against an independent tool when possible, not just the OS verifying its own output — before marking a milestone done. 
 

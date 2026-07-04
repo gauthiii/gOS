@@ -102,8 +102,15 @@ void syscall_dispatch(struct interrupt_frame *frame) {
         case SYS_WAITPID: {
             int target_pid = (int)frame->rdi;
             struct process *target = process_get(target_pid);
-            if (!target || target->state != PROC_ZOMBIE) {
-                frame->rax = (uint64_t)-1; /* not exited yet - caller should retry */
+            /* Milestone 26.3 (audit2 High #8): only the actual parent may
+             * reap a zombie. Without this check, any process could
+             * waitpid() on any other zombie's pid, steal its exit code,
+             * and reap it out from under its real parent - which would
+             * then see state PROC_UNUSED (not ZOMBIE) and get -1 ("not
+             * exited yet") forever, since the slot was already reaped. */
+            if (!target || target->state != PROC_ZOMBIE ||
+                target->parent_pid != scheduler_current_pid()) {
+                frame->rax = (uint64_t)-1; /* not exited yet (or not your child) - caller should retry/give up */
                 break;
             }
             frame->rax = (uint64_t)(int64_t)target->exit_code;

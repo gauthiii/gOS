@@ -5,6 +5,7 @@
 #include <heap.h>
 #include <fat32.h>
 #include <gdt.h>
+#include <timer.h>
 #include <serial.h>
 #include <stdint.h>
 
@@ -13,6 +14,12 @@ extern void scheduler_resume_kernel(void);
 extern void vmm_load_cr3(uint64_t phys);
 
 #define PAGE_SIZE 4096ULL
+
+/* PML4 slot every process-private mapping lives under (see process.h's
+ * PROC_LOAD_BASE/PROC_STACK_BASE comment) - the only slot vmm_destroy_
+ * process_pml4() is ever told to walk, so the shared kernel slot(s) can
+ * never be freed by this call. */
+#define PROC_PML4_SLOT ((PROC_LOAD_BASE >> 39) & 0x1FF)
 
 static struct process procs[MAX_PROCESSES];
 static int current_pid = -1;
@@ -50,6 +57,31 @@ int process_count_active(void) {
 int scheduler_is_active(void) { return scheduler_active; }
 int scheduler_current_pid(void) { return current_pid; }
 
+#if defined(GOS_TEST_FAULT_INJECT)
+/* Milestone 26.1 (audit2 High #6): a debug-only hook simulating PMM
+ * exhaustion at an exact, chosen point during process_spawn()'s page-
+ * mapping loop, so the failure-path cleanup can be tested deterministically
+ * without needing to genuinely exhaust the PMM (which would also make the
+ * rest of the system unusable for the test). */
+static int spawn_fail_after_n_pages = -1; /* -1 = disabled */
+
+void process_test_inject_spawn_failure(int after_n_pages) {
+    spawn_fail_after_n_pages = after_n_pages;
+}
+
+static int test_should_fail_page_alloc(void) {
+    if (spawn_fail_after_n_pages < 0) {
+        return 0;
+    }
+    if (spawn_fail_after_n_pages == 0) {
+        spawn_fail_after_n_pages = -1; /* one-shot */
+        return 1;
+    }
+    spawn_fail_after_n_pages--;
+    return 0;
+}
+#endif
+
 /* Allocates one fresh physical page, maps it into the given process's
  * private PML4 at `vaddr` (PAGE_USER|PAGE_WRITABLE), and fills it: the
  * first `copy_len` bytes come from `src` (may be NULL/0 for a pure-bss
@@ -59,6 +91,12 @@ int scheduler_current_pid(void) { return current_pid; }
  * necessarily the one currently loaded during process creation - CR3
  * doesn't change until the process actually runs. Returns 0 on OOM. */
 static int map_and_fill_page(uint64_t pml4_phys, uint64_t vaddr, const uint8_t *src, uint64_t copy_len) {
+#if defined(GOS_TEST_FAULT_INJECT)
+    if (test_should_fail_page_alloc()) {
+        serial_write_string("process: [fault injection] simulated pmm_alloc_page() failure\n");
+        return 0;
+    }
+#endif
     uint64_t phys = pmm_alloc_page();
     if (phys == 0) {
         serial_write_string("process: pmm_alloc_page() failed while loading a process\n");
@@ -149,7 +187,13 @@ int process_spawn(const char *path) {
                 }
             }
             if (!map_and_fill_page(pml4_phys, vaddr, src, copy_len)) {
+                /* Milestone 26.1 (audit2 High #6): free everything already
+                 * mapped into this process's address space so far - a
+                 * PT_LOAD page failing partway (PMM exhaustion) used to
+                 * just abandon pml4_phys and every page already mapped
+                 * under it, leaking on every failed spawn attempt. */
                 kfree(buf);
+                vmm_destroy_process_pml4(pml4_phys, PROC_PML4_SLOT);
                 return -1;
             }
         }
@@ -158,6 +202,7 @@ int process_spawn(const char *path) {
 
     for (uint64_t i = 0; i < PROC_STACK_PAGES; i++) {
         if (!map_and_fill_page(pml4_phys, PROC_STACK_BASE + i * PAGE_SIZE, 0, 0)) {
+            vmm_destroy_process_pml4(pml4_phys, PROC_PML4_SLOT);
             return -1;
         }
     }
@@ -170,6 +215,7 @@ int process_spawn(const char *path) {
     uint8_t *kstack = (uint8_t *)kmalloc(PROC_KSTACK_SIZE);
     if (!kstack) {
         serial_write_string("process: spawn failed - kmalloc for kernel stack\n");
+        vmm_destroy_process_pml4(pml4_phys, PROC_PML4_SLOT);
         return -1;
     }
 
@@ -199,12 +245,6 @@ int process_spawn(const char *path) {
     return slot;
 }
 
-/* PML4 slot every process-private mapping lives under (see process.h's
- * PROC_LOAD_BASE/PROC_STACK_BASE comment) - the only slot vmm_destroy_
- * process_pml4() is ever told to walk, so the shared kernel slot(s) can
- * never be freed by this call. */
-#define PROC_PML4_SLOT ((PROC_LOAD_BASE >> 39) & 0x1FF)
-
 void process_free_resources(int pid) {
     struct process *p = process_get(pid);
     if (!p) {
@@ -231,6 +271,30 @@ void process_free_resources(int pid) {
     }
 }
 
+/* Exit code stored for a process killed by process_kill() rather than its
+ * own SYS_EXIT - distinguishable from any real user-chosen exit code in
+ * practice (the bundled test ELFs all use small positive codes). */
+#define PROC_KILLED_EXIT_CODE (-2)
+
+/* Milestone 26.2 (audit2 High #7): forcibly terminates a still-running (or
+ * still-ready) process - marks it ZOMBIE with a distinguishable exit code
+ * and immediately reclaims its resources via the same process_free_
+ * resources() path a normal SYS_EXIT uses. No-op on an already-
+ * unused/zombie/invalid pid. Called by the scheduler's own watchdog below
+ * when a process overstays scheduler_run_until_done()'s time budget - the
+ * only way a hung/infinite-looping process can be dealt with today, since
+ * there's no ring-3-callable SYS_KILL yet (that's Phase 29's real shell's
+ * job, once user-mode code has a reason to kill another process itself). */
+void process_kill(int pid) {
+    struct process *p = process_get(pid);
+    if (!p || p->state == PROC_UNUSED || p->state == PROC_ZOMBIE) {
+        return;
+    }
+    p->exit_code = PROC_KILLED_EXIT_CODE;
+    p->state = PROC_ZOMBIE;
+    process_free_resources(pid);
+}
+
 static int pick_next_ready(int after) {
     for (int i = 1; i <= MAX_PROCESSES; i++) {
         int idx = (after + i) % MAX_PROCESSES;
@@ -241,8 +305,36 @@ static int pick_next_ready(int after) {
     return -1;
 }
 
+/* Milestone 26.2: scheduler_run_until_done() sets this to "now + budget"
+ * before entering the scheduler; scheduler_reschedule() checks it on every
+ * reschedule point (timer-driven preemption AND voluntary yields) and
+ * force-kills whichever process is currently running if the budget has
+ * been exceeded - the only mechanism that can end a `run`-launched
+ * infinite loop, since nothing else ever reschedules away from a process
+ * that never calls SYS_EXIT or gets preempted into yielding control back
+ * to a check like this one. 0 means "no active deadline" (scheduler not
+ * currently inside a scheduler_run_until_done() call). */
+static uint64_t run_deadline_tick = 0;
+
+/* ~5 seconds at the 100Hz PIT rate - generous for any legitimate bundled
+ * test program (all of which run to completion in well under a second),
+ * bounded enough that an infinite loop doesn't hang the desktop
+ * indefinitely (Finding #7's whole point). */
+#define RUN_TIMEOUT_TICKS (5 * PIT_FREQUENCY_HZ)
+
 void scheduler_reschedule(struct interrupt_frame *frame) {
-    if (current_pid != -1 && procs[current_pid].state == PROC_RUNNING) {
+    if (run_deadline_tick != 0 && current_pid != -1 && timer_get_ticks() >= run_deadline_tick) {
+        serial_write_string("scheduler: TIMEOUT - killing pid ");
+        serial_write_uint((uint64_t)current_pid);
+        serial_write_string(" (did not exit within the time budget)\n");
+        process_kill(current_pid);
+        /* One-shot per scheduler_run_until_done() call: once the
+         * offending process is gone, let any remaining READY processes
+         * finish normally without an active deadline hanging over them
+         * too - the goal is "an infinite loop can't hang forever", not
+         * "every process gets individually time-boxed". */
+        run_deadline_tick = 0;
+    } else if (current_pid != -1 && procs[current_pid].state == PROC_RUNNING) {
         procs[current_pid].regs = *frame;
         procs[current_pid].state = PROC_READY;
     }
@@ -282,6 +374,7 @@ void scheduler_run_until_done(void) {
         return;
     }
     scheduler_active = 1;
+    run_deadline_tick = timer_get_ticks() + RUN_TIMEOUT_TICKS; /* Milestone 26.2 */
     procs[first].state = PROC_RUNNING;
     current_pid = first;
     gdt_set_tss_rsp0(procs[first].kstack_top);
@@ -289,5 +382,6 @@ void scheduler_run_until_done(void) {
     serial_write_uint((uint64_t)first);
     serial_write_string("\n");
     scheduler_enter(&procs[first].regs, procs[first].pml4_phys); /* does not return until all zombie */
+    run_deadline_tick = 0; /* clear the watchdog now that we're back in the kernel */
     serial_write_string("scheduler: all processes finished - back in kernel context\n");
 }

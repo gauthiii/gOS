@@ -94,30 +94,38 @@ void desktop_render(void) {
         fb_draw_rect(ICON3_X + ICON_SIZE / 2 - 2, ICON3_Y + ICON_SIZE + 4 + FONT_HEIGHT + 3, 4, 4,
                      fb_make_color(255, 255, 255));
     }
+}
 
-    if (menu_visible) {
-        int64_t menu_h = MENU_ITEM_H * WALLPAPER_OPTION_COUNT;
-        fb_draw_rect_outline(menu_x, menu_y, MENU_ITEM_W, (uint64_t)menu_h, fb_make_color(0, 0, 0), 1);
-        int current = wallpaper_current_selection();
-        for (int i = 0; i < WALLPAPER_OPTION_COUNT; i++) {
-            int64_t row_y = menu_y + (int64_t)i * MENU_ITEM_H;
-            uint32_t bg = (i == current) ? fb_make_color(80, 110, 150) : fb_make_color(60, 60, 70);
-            fb_draw_rect(menu_x, row_y, MENU_ITEM_W, MENU_ITEM_H, bg);
-            char label[24];
-            int p = 0;
-            if (i == current) {
-                label[p++] = '>';
-                label[p++] = ' ';
-            }
-            const char *opt = wallpaper_option_label(i);
-            for (int k = 0; opt[k] && p < (int)sizeof(label) - 1; k++) {
-                label[p++] = opt[k];
-            }
-            label[p] = '\0';
-            fb_draw_string_clipped(menu_x + 6, row_y + (MENU_ITEM_H - FONT_HEIGHT) / 2, label,
-                                    fb_make_color(255, 255, 255), bg,
-                                    menu_x, row_y, MENU_ITEM_W, MENU_ITEM_H);
+/* Milestone 26.5 (audit2 High #10): moved out of desktop_render() (which
+ * runs BEFORE window_composite(), i.e. on the bottom compositing layer)
+ * into its own function called AFTER window_composite() - the menu is now
+ * a genuine top-layer overlay like the mouse cursor, so it can never be
+ * drawn underneath an open window regardless of where it's positioned. */
+void desktop_render_menu_overlay(void) {
+    if (!menu_visible) {
+        return;
+    }
+    int64_t menu_h = MENU_ITEM_H * WALLPAPER_OPTION_COUNT;
+    fb_draw_rect_outline(menu_x, menu_y, MENU_ITEM_W, (uint64_t)menu_h, fb_make_color(0, 0, 0), 1);
+    int current = wallpaper_current_selection();
+    for (int i = 0; i < WALLPAPER_OPTION_COUNT; i++) {
+        int64_t row_y = menu_y + (int64_t)i * MENU_ITEM_H;
+        uint32_t bg = (i == current) ? fb_make_color(80, 110, 150) : fb_make_color(60, 60, 70);
+        fb_draw_rect(menu_x, row_y, MENU_ITEM_W, MENU_ITEM_H, bg);
+        char label[24];
+        int p = 0;
+        if (i == current) {
+            label[p++] = '>';
+            label[p++] = ' ';
         }
+        const char *opt = wallpaper_option_label(i);
+        for (int k = 0; opt[k] && p < (int)sizeof(label) - 1; k++) {
+            label[p++] = opt[k];
+        }
+        label[p] = '\0';
+        fb_draw_string_clipped(menu_x + 6, row_y + (MENU_ITEM_H - FONT_HEIGHT) / 2, label,
+                                fb_make_color(255, 255, 255), bg,
+                                menu_x, row_y, MENU_ITEM_W, MENU_ITEM_H);
     }
 }
 

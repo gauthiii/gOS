@@ -1168,7 +1168,15 @@ void _start(void) {
      * duplicate, since write_named_entry already committed the new one. */
     {
         fat_create_file("RENTEST.TXT");
-        fat32_test_inject_write_failure(0); /* fail the very first erase write */
+        /* Milestone 26.4 extended fault injection to write_dirent_at too
+         * (not just erase_write_sector), so the shared countdown now also
+         * counts write_named_entry's own write of the new entry (1 write,
+         * for a short non-LFN name like this) before erase_dirent_and_lfn
+         * gets its turn - skip that one (countdown=1: let 1 write through)
+         * so the injected failure actually lands on the erase step this
+         * test is about, not the unrelated write step earlier in the
+         * same fat_rename() call. */
+        fat32_test_inject_write_failure(1); /* let the rename's own write through, fail the first erase write */
         int ok = fat_rename("RENTEST.TXT", "RENAMED1.TXT");
         serial_write_string("TEST: fat_rename with 1 transient erase failure = ");
         serial_write_string(ok ? "1 (OK - retry recovered)" : "0 (FAIL)");
@@ -1206,6 +1214,42 @@ void _start(void) {
         serial_write_uint((uint64_t)still_there);
         serial_write_string(still_there ? " (OK - failed closed, not open)\n" : " (MISMATCH - failed OPEN, data at risk)\n");
     }
+
+    /* Milestone 26.4 (audit2 High #9): a long-filename create that fails
+     * partway through its multi-slot LFN write must not hide/corrupt any
+     * pre-existing entry. Create sentinels, fail a long-name create right
+     * after its first LFN entry commits, then confirm every sentinel
+     * (and the directory listing as a whole) is completely unaffected -
+     * proving rollback_partial_entries() leaves no dangling partial run
+     * behind that could otherwise confuse a later scan. */
+    {
+        fat_create_file("SENT1.TXT");
+        fat_create_file("SENT2.TXT");
+        fat_create_file("SENT3.TXT");
+        struct fat_dirent before_entries[FAT32_MAX_DIRENTS];
+        int before_count = fat_list_dir(fat32_root_cluster(), before_entries, FAT32_MAX_DIRENTS);
+
+        fat32_test_inject_write_failure(1); /* let 1 write through, fail the 2nd (a multi-entry LFN name needs several) */
+        int lfn_create_ok = fat_create_file("a partially written long name test.txt");
+        fat32_test_clear_fault_injection();
+        serial_write_string("TEST: fat_create_file(long name) with a write failing partway = ");
+        serial_write_string(lfn_create_ok ? "1 (create succeeded anyway)" : "0 (expected - failed)");
+        serial_write_string("\n");
+
+        struct fat_dirent after_entries[FAT32_MAX_DIRENTS];
+        int after_count = fat_list_dir(fat32_root_cluster(), after_entries, FAT32_MAX_DIRENTS);
+        int sent1_ok = fat_resolve_path("SENT1.TXT", &(struct fat_dirent){0});
+        int sent2_ok = fat_resolve_path("SENT2.TXT", &(struct fat_dirent){0});
+        int sent3_ok = fat_resolve_path("SENT3.TXT", &(struct fat_dirent){0});
+        serial_write_string("TEST: sentinels still resolvable after the failed LFN create = ");
+        serial_write_uint((uint64_t)(sent1_ok && sent2_ok && sent3_ok));
+        serial_write_string((sent1_ok && sent2_ok && sent3_ok) ? " (OK)\n" : " (MISMATCH - a sentinel was hidden/lost)\n");
+        serial_write_string("TEST: directory entry count before vs after failed create = ");
+        serial_write_uint((uint64_t)before_count);
+        serial_write_string(" vs ");
+        serial_write_uint((uint64_t)after_count);
+        serial_write_string(before_count == after_count ? " (OK - unchanged)\n" : " (MISMATCH)\n");
+    }
 #endif
 
 #if defined(GOS_TEST_PHASE25)
@@ -1229,6 +1273,77 @@ void _start(void) {
         serial_write_string("TEST: bmp_decode() on a 100000x100000-claiming BMP = ");
         serial_write_string(decode_ok ? "1 (UNEXPECTED - overflow path reachable)" : "0 (correctly rejected)");
         serial_write_string("\n");
+    }
+#endif
+
+#if defined(GOS_TEST_FAULT_INJECT)
+    /* Milestone 26.1 (audit2 High #6): force a page-allocation failure
+     * partway through process_spawn()'s mapping loop and confirm the
+     * failure path frees everything already mapped so far instead of
+     * leaking it. */
+    {
+        uint64_t pmm_baseline = pmm_free_pages();
+        serial_write_string("TEST: pmm_free_pages() baseline (26.1) = ");
+        serial_write_uint(pmm_baseline);
+        serial_write_string("\n");
+        process_test_inject_spawn_failure(2); /* fail the 3rd page allocation (0-indexed) */
+        int pid = process_spawn("HELLO.ELF");
+        serial_write_string("TEST: process_spawn(HELLO.ELF) with forced page-3 failure = ");
+        serial_write_uint((uint64_t)pid);
+        serial_write_string(pid < 0 ? " (expected failure)\n" : " (UNEXPECTED success)\n");
+        process_test_inject_spawn_failure(-1); /* clear */
+        uint64_t pmm_after = pmm_free_pages();
+        serial_write_string("TEST: pmm_free_pages() after failed spawn = ");
+        serial_write_uint(pmm_after);
+        serial_write_string(pmm_after == pmm_baseline ? " (== baseline, OK - no leak)\n" : " (MISMATCH - leak?)\n");
+    }
+#endif
+
+#if defined(GOS_TEST_PHASE26)
+    /* Milestone 26.2 (audit2 High #7): run INFLOOP.ELF (never calls
+     * SYS_EXIT) and confirm the scheduler's watchdog kills it within its
+     * time budget instead of hanging scheduler_run_until_done() forever -
+     * proven by this call actually returning at all. */
+    {
+        uint64_t t0 = timer_get_ticks();
+        int pid = process_spawn("INFLOOP.ELF");
+        serial_write_string("TEST: process_spawn(INFLOOP.ELF) = ");
+        serial_write_uint((uint64_t)pid);
+        serial_write_string("\n");
+        if (pid >= 0) {
+            scheduler_run_until_done(); /* must return - this line running at all is the proof */
+            uint64_t elapsed = timer_get_ticks() - t0;
+            struct process *p = process_get(pid);
+            serial_write_string("TEST: scheduler_run_until_done() RETURNED after ~");
+            serial_write_uint(elapsed);
+            serial_write_string(" ticks (did not hang)\n");
+            serial_write_string("TEST: INFLOOP.ELF exit_code = ");
+            serial_write_uint((uint64_t)(p ? p->exit_code : 0));
+            serial_write_string(p && p->exit_code == -2 ? " (== -2, OK - killed by watchdog)\n" : " (MISMATCH)\n");
+        }
+    }
+
+    /* Milestone 26.3 (audit2 High #8): WPTEST.ELF tries SYS_WAITPID on
+     * every pid even though none are its own child - every attempt must
+     * be rejected. Spawn SPIN1.ELF first (kernel-spawned, parent_pid=-1)
+     * so at least one REAL zombie with a genuine (but non-matching)
+     * parent_pid exists among the pids WPTEST.ELF will try. */
+    {
+        int spin_pid = process_spawn("SPIN1.ELF");
+        if (spin_pid >= 0) {
+            scheduler_run_until_done(); /* let it finish and become a zombie */
+        }
+        int wp_pid = process_spawn("WPTEST.ELF");
+        serial_write_string("TEST: process_spawn(WPTEST.ELF) = ");
+        serial_write_uint((uint64_t)wp_pid);
+        serial_write_string("\n");
+        if (wp_pid >= 0) {
+            scheduler_run_until_done();
+            struct process *wp = process_get(wp_pid);
+            serial_write_string("TEST: WPTEST.ELF exit_code = ");
+            serial_write_uint((uint64_t)(wp ? wp->exit_code : -1));
+            serial_write_string(wp && wp->exit_code == 99 ? " (== 99, OK - every non-parent waitpid rejected)\n" : " (MISMATCH - a non-parent waitpid may have succeeded)\n");
+        }
     }
 #endif
 
@@ -1373,6 +1488,7 @@ void _start(void) {
         desktop_render();
         window_composite();
         taskbar_render();
+        desktop_render_menu_overlay(); /* Milestone 26.5: true top-layer overlay, drawn after every window */
         mouse_draw_cursor();
         fb_flip();
         sleep_ms(50);
@@ -1407,6 +1523,7 @@ void _start(void) {
         desktop_render();
         window_composite();
         taskbar_render();
+        desktop_render_menu_overlay(); /* Milestone 26.5: true top-layer overlay, drawn after every window */
         /* Milestone 15.1: cursor is the compositor's top layer - drawn
          * after every window AND the taskbar, so it's never occluded. */
         mouse_draw_cursor();

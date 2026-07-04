@@ -100,7 +100,8 @@ iso: build
 # process_spawn() under GOS_TEST_MULTITASKING.
 PROC_BINS := tools/userland/spin1.elf tools/userland/spin2.elf tools/userland/spin3.elf \
              tools/userland/spin4.elf tools/userland/spin5.elf \
-             tools/userland/child.elf tools/userland/parent.elf tools/userland/badptr.elf
+             tools/userland/child.elf tools/userland/parent.elf tools/userland/badptr.elf \
+             tools/userland/waitpid_test.elf tools/userland/infloop.elf
 DISK_RECIPE := truncate -s 64M $(DISK_IMG) && mformat -F -i $(DISK_IMG) -v GOSDISK :: && \
 	mcopy -i $(DISK_IMG) tools/wallpaper.bmp ::WALLPAPR.BMP && \
 	mcopy -i $(DISK_IMG) tools/custom.bmp ::CUSTOM.BMP && \
@@ -114,7 +115,9 @@ DISK_RECIPE := truncate -s 64M $(DISK_IMG) && mformat -F -i $(DISK_IMG) -v GOSDI
 	mcopy -i $(DISK_IMG) tools/userland/spin5.elf ::SPIN5.ELF && \
 	mcopy -i $(DISK_IMG) tools/userland/child.elf ::CHILD.ELF && \
 	mcopy -i $(DISK_IMG) tools/userland/parent.elf ::PARENT.ELF && \
-	mcopy -i $(DISK_IMG) tools/userland/badptr.elf ::BADPTR.ELF
+	mcopy -i $(DISK_IMG) tools/userland/badptr.elf ::BADPTR.ELF && \
+	mcopy -i $(DISK_IMG) tools/userland/waitpid_test.elf ::WPTEST.ELF && \
+	mcopy -i $(DISK_IMG) tools/userland/infloop.elf ::INFLOOP.ELF
 DISK_RECIPE_HASH := $(shell echo "$(DISK_RECIPE)" | shasum -a 256 | cut -d' ' -f1)
 DISK_HASH_FILE := disk_images/.disk_recipe_hash
 
@@ -192,6 +195,23 @@ tools/userland/badptr.elf: tools/userland/badptr.asm tools/userland/proc.ld
 	$(NASM) -f elf64 tools/userland/badptr.asm -o $(BUILD_DIR)/userland_badptr.o
 	$(LD) -T tools/userland/proc.ld -nostdlib -static -no-pie -z max-page-size=0x1000 \
 		$(BUILD_DIR)/userland_badptr.o -o $@
+
+# Milestone 26.3 (audit2 High #8): tries SYS_WAITPID on every pid even
+# though none are its own child, proving the ownership check rejects them.
+tools/userland/waitpid_test.elf: tools/userland/waitpid_test.asm tools/userland/proc.ld
+	@mkdir -p $(BUILD_DIR)
+	$(NASM) -f elf64 tools/userland/waitpid_test.asm -o $(BUILD_DIR)/userland_waitpid_test.o
+	$(LD) -T tools/userland/proc.ld -nostdlib -static -no-pie -z max-page-size=0x1000 \
+		$(BUILD_DIR)/userland_waitpid_test.o -o $@
+
+# Milestone 26.2 (audit2 High #7): an intentional infinite loop, never
+# calling SYS_EXIT, to prove the scheduler's watchdog kills it instead of
+# hanging the whole desktop forever.
+tools/userland/infloop.elf: tools/userland/infloop.asm tools/userland/proc.ld
+	@mkdir -p $(BUILD_DIR)
+	$(NASM) -f elf64 tools/userland/infloop.asm -o $(BUILD_DIR)/userland_infloop.o
+	$(LD) -T tools/userland/proc.ld -nostdlib -static -no-pie -z max-page-size=0x1000 \
+		$(BUILD_DIR)/userland_infloop.o -o $@
 
 run: iso disk $(BUILD_DIR)/OVMF_VARS.fd
 	qemu-system-x86_64 \
