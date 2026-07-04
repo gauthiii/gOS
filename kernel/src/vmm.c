@@ -194,3 +194,95 @@ void vmm_init(uint64_t hhdm_offset, uint64_t kernel_phys_base, uint64_t kernel_v
 uint64_t vmm_get_pml4_phys(void) {
     return pml4_phys;
 }
+
+/* Read-only walk (creates nothing) checking PRESENT+USER at every level
+ * down to the leaf PTE for a single 4KiB-aligned page. */
+static int page_mapped_user(uint64_t target_pml4_phys, uint64_t virt) {
+    uint64_t pml4_i = (virt >> 39) & 0x1FF;
+    uint64_t pdpt_i = (virt >> 30) & 0x1FF;
+    uint64_t pd_i   = (virt >> 21) & 0x1FF;
+    uint64_t pt_i   = (virt >> 12) & 0x1FF;
+
+    uint64_t *pml4 = phys_to_virt(target_pml4_phys);
+    if (!(pml4[pml4_i] & PAGE_PRESENT) || !(pml4[pml4_i] & PAGE_USER)) {
+        return 0;
+    }
+    uint64_t *pdpt = phys_to_virt(pml4[pml4_i] & ADDR_MASK);
+    if (!(pdpt[pdpt_i] & PAGE_PRESENT) || !(pdpt[pdpt_i] & PAGE_USER)) {
+        return 0;
+    }
+    if (pdpt[pdpt_i] & PAGE_HUGE) {
+        return 0; /* 1GiB huge page - never used for process memory in this codebase */
+    }
+    uint64_t *pd = phys_to_virt(pdpt[pdpt_i] & ADDR_MASK);
+    if (!(pd[pd_i] & PAGE_PRESENT) || !(pd[pd_i] & PAGE_USER)) {
+        return 0;
+    }
+    if (pd[pd_i] & PAGE_HUGE) {
+        return 0; /* 2MiB huge page - never used for process memory in this codebase */
+    }
+    uint64_t *pt = phys_to_virt(pd[pd_i] & ADDR_MASK);
+    return (pt[pt_i] & PAGE_PRESENT) && (pt[pt_i] & PAGE_USER);
+}
+
+int vmm_range_mapped_user(uint64_t pml4_phys, uint64_t vaddr, uint64_t len) {
+    if (len == 0) {
+        return 1;
+    }
+    uint64_t end = vaddr + len;
+    if (end < vaddr) {
+        return 0; /* vaddr+len overflowed - reject rather than silently wrap */
+    }
+    uint64_t page = vaddr & ~(PAGE_SIZE_4K - 1);
+    while (page < end) {
+        if (!page_mapped_user(pml4_phys, page)) {
+            return 0;
+        }
+        uint64_t next = page + PAGE_SIZE_4K;
+        if (next < page) {
+            break; /* defensive: can't happen since `end` already passed the overflow check */
+        }
+        page = next;
+    }
+    return 1;
+}
+
+void vmm_destroy_process_pml4(uint64_t pml4_phys, uint64_t proc_pml4_index) {
+    uint64_t *pml4 = phys_to_virt(pml4_phys);
+    if (pml4[proc_pml4_index] & PAGE_PRESENT) {
+        uint64_t pdpt_phys = pml4[proc_pml4_index] & ADDR_MASK;
+        uint64_t *pdpt = phys_to_virt(pdpt_phys);
+        for (int i = 0; i < ENTRIES_PER_TABLE; i++) {
+            if (!(pdpt[i] & PAGE_PRESENT)) {
+                continue;
+            }
+            if (pdpt[i] & PAGE_HUGE) {
+                pmm_free_page(pdpt[i] & ADDR_MASK);
+                continue;
+            }
+            uint64_t pd_phys = pdpt[i] & ADDR_MASK;
+            uint64_t *pd = phys_to_virt(pd_phys);
+            for (int j = 0; j < ENTRIES_PER_TABLE; j++) {
+                if (!(pd[j] & PAGE_PRESENT)) {
+                    continue;
+                }
+                if (pd[j] & PAGE_HUGE) {
+                    pmm_free_page(pd[j] & ADDR_MASK);
+                    continue;
+                }
+                uint64_t pt_phys = pd[j] & ADDR_MASK;
+                uint64_t *pt = phys_to_virt(pt_phys);
+                for (int k = 0; k < ENTRIES_PER_TABLE; k++) {
+                    if (pt[k] & PAGE_PRESENT) {
+                        pmm_free_page(pt[k] & ADDR_MASK);
+                    }
+                }
+                pmm_free_page(pt_phys);
+            }
+            pmm_free_page(pd_phys);
+        }
+        pmm_free_page(pdpt_phys);
+        pml4[proc_pml4_index] = 0;
+    }
+    pmm_free_page(pml4_phys);
+}

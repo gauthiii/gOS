@@ -26,6 +26,7 @@ struct process {
     struct interrupt_frame regs; /* saved on every preemption/syscall reschedule; restored on resume */
     uint64_t pml4_phys;
     uint64_t kstack_top;
+    void *kstack_base;   /* Milestone 25.2: the kmalloc()'d pointer kstack_top was computed from - kstack_top alone isn't enough to kfree() it */
     int parent_pid;
     int exit_code;
 };
@@ -39,6 +40,21 @@ int process_spawn(const char *path);
 
 struct process *process_get(int pid);
 int process_count_active(void); /* READY or RUNNING, not ZOMBIE/UNUSED */
+
+/* Milestone 25.2 (audit2 Critical #2): frees every physical page this
+ * process's address space owns (via vmm_destroy_process_pml4()) and its
+ * kmalloc'd kernel stack. Called once, right when a process transitions to
+ * PROC_ZOMBIE (see syscall.c's SYS_EXIT handler) - NOT at reap/waitpid
+ * time, so memory is reclaimed the moment a process actually exits
+ * regardless of whether anything ever calls waitpid on it (e.g. the
+ * kernel-mode Terminal's `run` command never does). Leaves `state`,
+ * `exit_code`, and `pid` intact so a subsequent waitpid/reap still sees a
+ * valid zombie; `pml4_phys`/`kstack_top`/`kstack_base` are zeroed since
+ * they no longer point at anything live. Safe to call at most once per
+ * process (idempotent no-op if called again, since the freed fields are
+ * zeroed and vmm_destroy_process_pml4/kfree are both no-ops on 0/NULL in
+ * every path this codebase exercises). */
+void process_free_resources(int pid);
 
 /* Runs the scheduler (real timer-driven preemption) until every spawned
  * process has reached PROC_ZOMBIE, then returns - the calling kernel code

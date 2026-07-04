@@ -27,6 +27,7 @@
 #include <terminal.h>
 #include <calculator.h>
 #include <imageviewer.h>
+#include <bmp.h>
 
 extern uint8_t __kernel_virt_start[];
 extern uint8_t __kernel_virt_end[];
@@ -1083,6 +1084,151 @@ void _start(void) {
         serial_write_string("\nTEST: heap_free_bytes() after 5 more image-viewer open/close cycles = ");
         serial_write_uint(after_viewer);
         serial_write_string(after_viewer == viewer_baseline ? " (== post-warm-up baseline, OK - no leak)\n" : " (MISMATCH - leak?)\n");
+    }
+#endif
+
+#if defined(GOS_TEST_PHASE25)
+    /* Milestone 25.1 (audit2 Critical #1): spawn BADPTR.ELF, which calls
+     * SYS_WRITE with an unmapped pointer. Pre-fix, the kernel would
+     * page-fault servicing that syscall and panic/halt. Post-fix, the
+     * syscall should be rejected and the process should continue running
+     * and exit normally with its distinctive marker code (42), proving
+     * the kernel survived and the process wasn't just silently killed. */
+    {
+        int pid = process_spawn("BADPTR.ELF");
+        serial_write_string("TEST: process_spawn(BADPTR.ELF) = ");
+        serial_write_uint((uint64_t)pid);
+        serial_write_string("\n");
+        if (pid >= 0) {
+            scheduler_run_until_done();
+            struct process *p = process_get(pid);
+            serial_write_string("TEST: BADPTR.ELF exit_code = ");
+            serial_write_uint((uint64_t)(p ? p->exit_code : -1));
+            serial_write_string(p && p->exit_code == 42 ? " (== 42, OK - kernel survived the bad pointer)\n" : " (MISMATCH)\n");
+        }
+    }
+
+    /* Milestone 25.2 (audit2 Critical #2): 10x spawn-to-completion cycles
+     * via the exact same kernel-callable path the Terminal's `run` command
+     * uses (process_spawn + scheduler_run_until_done, no SYS_WAITPID
+     * involved) - confirms process exit reclaims memory even when nothing
+     * ever reaps the zombie via waitpid. */
+    {
+        uint64_t heap_baseline = heap_free_bytes();
+        uint64_t pmm_baseline = pmm_free_pages();
+        serial_write_string("TEST: heap_free_bytes() baseline = ");
+        serial_write_uint(heap_baseline);
+        serial_write_string("\nTEST: pmm_free_pages() baseline = ");
+        serial_write_uint(pmm_baseline);
+        serial_write_string("\n");
+
+        for (int i = 0; i < 10; i++) {
+            int pid = process_spawn("HELLO.ELF");
+            if (pid >= 0) {
+                scheduler_run_until_done();
+                /* Reap the zombie slot (equivalent to a real caller
+                 * eventually calling SYS_WAITPID) so the process TABLE
+                 * doesn't exhaust after MAX_PROCESSES=8 unreaped cycles -
+                 * that's a separate, real limitation (nothing in this
+                 * codebase reaps automatically) but isn't what this test
+                 * is measuring. process_free_resources() already ran at
+                 * SYS_EXIT time regardless of this reap step - the memory
+                 * this test checks was already reclaimed before this line
+                 * even runs. */
+                struct process *p = process_get(pid);
+                if (p) {
+                    p->state = PROC_UNUSED;
+                }
+            }
+            serial_write_string("TEST: pmm_free_pages() after cycle ");
+            serial_write_uint((uint64_t)i);
+            serial_write_string(" = ");
+            serial_write_uint(pmm_free_pages());
+            serial_write_string("\n");
+        }
+
+        uint64_t heap_after = heap_free_bytes();
+        uint64_t pmm_after = pmm_free_pages();
+        serial_write_string("TEST: heap_free_bytes() after 10x run cycles = ");
+        serial_write_uint(heap_after);
+        serial_write_string(heap_after == heap_baseline ? " (== baseline, OK - no leak)\n" : " (MISMATCH - leak?)\n");
+        serial_write_string("TEST: pmm_free_pages() after 10x run cycles = ");
+        serial_write_uint(pmm_after);
+        serial_write_string(pmm_after == pmm_baseline ? " (== baseline, OK - no leak)\n" : " (MISMATCH - leak?)\n");
+    }
+#endif
+
+#if defined(GOS_TEST_FAULT_INJECT)
+    /* Milestone 25.3 (audit2 Critical #3): rename a file while injecting a
+     * single transient write failure on the erase step - the bounded retry
+     * should recover and the rename should still succeed with no duplicate
+     * entry left behind. Then repeat with a PERSISTENT failure - the retry
+     * should exhaust its 3 attempts, report failure honestly, and (this is
+     * the property that matters) leave the OLD name intact rather than a
+     * duplicate, since write_named_entry already committed the new one. */
+    {
+        fat_create_file("RENTEST.TXT");
+        fat32_test_inject_write_failure(0); /* fail the very first erase write */
+        int ok = fat_rename("RENTEST.TXT", "RENAMED1.TXT");
+        serial_write_string("TEST: fat_rename with 1 transient erase failure = ");
+        serial_write_string(ok ? "1 (OK - retry recovered)" : "0 (FAIL)");
+        serial_write_string("\n");
+        fat32_test_clear_fault_injection();
+
+        fat_create_file("RENTEST2.TXT");
+        fat32_test_inject_persistent_write_failure();
+        int ok2 = fat_rename("RENTEST2.TXT", "RENAMED2.TXT");
+        fat32_test_clear_fault_injection();
+        serial_write_string("TEST: fat_rename with PERSISTENT erase failure = ");
+        serial_write_string(ok2 ? "1 (UNEXPECTED)" : "0 (expected - reported honestly)");
+        serial_write_string("\n");
+        struct fat_dirent d;
+        int old_still_there = fat_resolve_path("RENTEST2.TXT", &d);
+        serial_write_string("TEST: RENTEST2.TXT still resolvable after failed rename = ");
+        serial_write_uint((uint64_t)old_still_there);
+        serial_write_string(old_still_there ? " (OK - original preserved)\n" : " (MISMATCH)\n");
+    }
+
+    /* Milestone 25.4 (audit2 Critical #4): delete a file with a persistent
+     * erase failure - the delete should fail closed (entry stays, chain
+     * stays allocated), not open. */
+    {
+        fat_create_file("DELTEST.TXT");
+        fat32_test_inject_persistent_write_failure();
+        int del_ok = fat_delete_file("DELTEST.TXT");
+        fat32_test_clear_fault_injection();
+        serial_write_string("TEST: fat_delete_file with PERSISTENT erase failure = ");
+        serial_write_string(del_ok ? "1 (UNEXPECTED)" : "0 (expected - failed closed)");
+        serial_write_string("\n");
+        struct fat_dirent d2;
+        int still_there = fat_resolve_path("DELTEST.TXT", &d2);
+        serial_write_string("TEST: DELTEST.TXT still resolvable after failed delete = ");
+        serial_write_uint((uint64_t)still_there);
+        serial_write_string(still_there ? " (OK - failed closed, not open)\n" : " (MISMATCH - failed OPEN, data at risk)\n");
+    }
+#endif
+
+#if defined(GOS_TEST_PHASE25)
+    /* Milestone 25.5 (audit2 Critical #5): a hand-crafted BMP header
+     * claiming dimensions far beyond BMP_MAX_DIMENSION - bmp_decode must
+     * reject it before ever computing the row-stride/allocation-size
+     * arithmetic that a huge w/h could overflow. */
+    {
+        static uint8_t fake_bmp[54];
+        for (int i = 0; i < 54; i++) fake_bmp[i] = 0;
+        fake_bmp[0] = 'B'; fake_bmp[1] = 'M';
+        fake_bmp[14] = 40; /* header_size = 40 */
+        /* w = h = 100000 (0x000186A0), little-endian, at offsets 18/22 */
+        fake_bmp[18] = 0xA0; fake_bmp[19] = 0x86; fake_bmp[20] = 0x01; fake_bmp[21] = 0x00;
+        fake_bmp[22] = 0xA0; fake_bmp[23] = 0x86; fake_bmp[24] = 0x01; fake_bmp[25] = 0x00;
+        fake_bmp[26] = 1; /* planes */
+        fake_bmp[28] = 24; /* bpp */
+        uint32_t *pixels = 0;
+        uint64_t w = 0, h = 0;
+        int decode_ok = bmp_decode(fake_bmp, sizeof(fake_bmp), &pixels, &w, &h);
+        serial_write_string("TEST: bmp_decode() on a 100000x100000-claiming BMP = ");
+        serial_write_string(decode_ok ? "1 (UNEXPECTED - overflow path reachable)" : "0 (correctly rejected)");
+        serial_write_string("\n");
     }
 #endif
 

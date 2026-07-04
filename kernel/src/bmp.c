@@ -15,6 +15,16 @@ static int32_t read_s32(const uint8_t *p) {
     return (int32_t)read_u32(p);
 }
 
+/* Milestone 25.5 (audit2 Critical #5): generously above any bundled image
+ * or the framebuffer's own 1280x800, but small enough that w*h*4 (the
+ * pixel-buffer kmalloc size) and row_stride*h (the truncation check) can
+ * never overflow a 64-bit product even before this bound is applied -
+ * 4096*4096*4 is ~64MiB, nowhere near wrapping. Enforced BEFORE either of
+ * those products is computed, closing the integer-overflow path a crafted
+ * or malformed BMP (opened via Image Viewer, or dropped in as a wallpaper)
+ * could otherwise reach by claiming a huge w/h. */
+#define BMP_MAX_DIMENSION 4096
+
 int bmp_decode(const uint8_t *buf, uint32_t len, uint32_t **out_pixels, uint64_t *out_w, uint64_t *out_h) {
     if (len < 54) {
         serial_write_string("BMP: file too small for headers\n");
@@ -34,6 +44,10 @@ int bmp_decode(const uint8_t *buf, uint32_t len, uint32_t **out_pixels, uint64_t
 
     if (header_size < 40 || planes != 1 || bpp != 24 || compression != 0 || w <= 0 || h <= 0) {
         serial_write_string("BMP: unsupported variant (need 24bpp uncompressed, bottom-up)\n");
+        return 0;
+    }
+    if (w > BMP_MAX_DIMENSION || h > BMP_MAX_DIMENSION) {
+        serial_write_string("BMP: dimensions exceed the maximum supported (4096x4096)\n");
         return 0;
     }
 

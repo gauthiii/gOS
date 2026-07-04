@@ -82,4 +82,21 @@ int fat_delete_dir(const char *path);
  * same parent directory). */
 int fat_rename(const char *path, const char *new_name);
 
+#if defined(GOS_TEST_FAULT_INJECT)
+/* Milestone 25.3/25.4 debug-only hook: makes the Nth subsequent erase-path
+ * directory-entry sector write (0 = the very next one) fail, to test
+ * fat_rename's/fat_delete_*'s handling of a mid-operation disk write
+ * failure without needing real disk-level fault injection. One-shot: after
+ * firing once, fault injection is disabled again. Pass a negative number
+ * to disable without firing. */
+void fat32_test_inject_write_failure(int after_n_writes);
+
+/* Makes every subsequent erase-path write fail until explicitly cleared -
+ * simulates a persistent (not transient) disk fault, for testing that a
+ * bounded retry correctly gives up and reports the residual-risk state
+ * rather than retrying forever or silently succeeding. */
+void fat32_test_inject_persistent_write_failure(void);
+void fat32_test_clear_fault_injection(void);
+#endif
+
 #endif

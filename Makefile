@@ -100,7 +100,7 @@ iso: build
 # process_spawn() under GOS_TEST_MULTITASKING.
 PROC_BINS := tools/userland/spin1.elf tools/userland/spin2.elf tools/userland/spin3.elf \
              tools/userland/spin4.elf tools/userland/spin5.elf \
-             tools/userland/child.elf tools/userland/parent.elf
+             tools/userland/child.elf tools/userland/parent.elf tools/userland/badptr.elf
 DISK_RECIPE := truncate -s 64M $(DISK_IMG) && mformat -F -i $(DISK_IMG) -v GOSDISK :: && \
 	mcopy -i $(DISK_IMG) tools/wallpaper.bmp ::WALLPAPR.BMP && \
 	mcopy -i $(DISK_IMG) tools/custom.bmp ::CUSTOM.BMP && \
@@ -113,7 +113,8 @@ DISK_RECIPE := truncate -s 64M $(DISK_IMG) && mformat -F -i $(DISK_IMG) -v GOSDI
 	mcopy -i $(DISK_IMG) tools/userland/spin4.elf ::SPIN4.ELF && \
 	mcopy -i $(DISK_IMG) tools/userland/spin5.elf ::SPIN5.ELF && \
 	mcopy -i $(DISK_IMG) tools/userland/child.elf ::CHILD.ELF && \
-	mcopy -i $(DISK_IMG) tools/userland/parent.elf ::PARENT.ELF
+	mcopy -i $(DISK_IMG) tools/userland/parent.elf ::PARENT.ELF && \
+	mcopy -i $(DISK_IMG) tools/userland/badptr.elf ::BADPTR.ELF
 DISK_RECIPE_HASH := $(shell echo "$(DISK_RECIPE)" | shasum -a 256 | cut -d' ' -f1)
 DISK_HASH_FILE := disk_images/.disk_recipe_hash
 
@@ -137,12 +138,28 @@ tools/wallpaper.bmp: tools/make_wallpaper.py
 
 # Milestone 19.3: the bundled user-mode ELF64 test binary. Assembled and
 # linked entirely independently of the kernel build (no libc, no crt0,
-# just nasm + a raw linker script) - see tools/userland/hello.asm and
-# tools/userland/user.ld.
-tools/userland/hello.elf: tools/userland/hello.asm tools/userland/user.ld
+# just nasm + a raw linker script).
+#
+# Milestone 25.2 bugfix (found via the process-teardown leak test): this
+# used to link against tools/userland/user.ld (base 0x141000000, outside
+# PML4 slot 1) - fine for the Phase 19 usermode_run_elf() demo (which maps
+# directly into the kernel's own single PML4, no per-process isolation),
+# but HELLO.ELF is ALSO spawned via process_spawn() (Phase 20/24's real
+# per-process path - the Terminal's `run HELLO.ELF`, and Phase 25.2's own
+# leak-regression test) where PROC_LOAD_BASE/slot 1 is the only region
+# vmm_destroy_process_pml4() is safe to walk (slot 0 is shared kernel
+# state and must never be freed). A user.ld-linked HELLO.ELF's code
+# segment landed at 0x141000000 - inside slot 0, not slot 1 - so its
+# tables/pages were invisible to teardown and leaked permanently on every
+# process_spawn()-based run. Switched to proc.ld (PROC_LOAD_BASE-based,
+# same as spin/child/parent) so every spawn path maps it into the
+# genuinely per-process-private slot. hello.asm makes no address
+# assumptions of its own (RIP-relative addressing throughout), so this is
+# a build-config-only change.
+tools/userland/hello.elf: tools/userland/hello.asm tools/userland/proc.ld
 	@mkdir -p $(BUILD_DIR)
 	$(NASM) -f elf64 tools/userland/hello.asm -o $(BUILD_DIR)/userland_hello.o
-	$(LD) -T tools/userland/user.ld -nostdlib -static -no-pie -z max-page-size=0x1000 \
+	$(LD) -T tools/userland/proc.ld -nostdlib -static -no-pie -z max-page-size=0x1000 \
 		$(BUILD_DIR)/userland_hello.o -o $@
 
 # Milestone 20.1/20.3: five copies of spinner.asm, each with a distinct
@@ -167,6 +184,14 @@ tools/userland/parent.elf: tools/userland/parent.asm tools/userland/proc.ld
 	$(NASM) -f elf64 tools/userland/parent.asm -o $(BUILD_DIR)/userland_parent.o
 	$(LD) -T tools/userland/proc.ld -nostdlib -static -no-pie -z max-page-size=0x1000 \
 		$(BUILD_DIR)/userland_parent.o -o $@
+
+# Milestone 25.1 (audit2 Critical #1): deliberately calls SYS_WRITE with an
+# unmapped pointer, to prove the kernel rejects it instead of page-faulting.
+tools/userland/badptr.elf: tools/userland/badptr.asm tools/userland/proc.ld
+	@mkdir -p $(BUILD_DIR)
+	$(NASM) -f elf64 tools/userland/badptr.asm -o $(BUILD_DIR)/userland_badptr.o
+	$(LD) -T tools/userland/proc.ld -nostdlib -static -no-pie -z max-page-size=0x1000 \
+		$(BUILD_DIR)/userland_badptr.o -o $@
 
 run: iso disk $(BUILD_DIR)/OVMF_VARS.fd
 	qemu-system-x86_64 \

@@ -113,6 +113,11 @@ int process_spawn(const char *path) {
         return -1;
     }
 
+#if defined(GOS_TEST_PHASE25_DEBUG)
+    serial_write_string("DEBUG: pmm_free_pages before vmm_create_process_pml4 = ");
+    serial_write_uint(pmm_free_pages());
+    serial_write_string("\n");
+#endif
     uint64_t pml4_phys = vmm_create_process_pml4();
 
     for (uint16_t i = 0; i < eh->e_phnum; i++) {
@@ -157,6 +162,11 @@ int process_spawn(const char *path) {
         }
     }
 
+#if defined(GOS_TEST_PHASE25_DEBUG)
+    serial_write_string("DEBUG: pmm_free_pages after all mapping (before kstack kmalloc) = ");
+    serial_write_uint(pmm_free_pages());
+    serial_write_string("\n");
+#endif
     uint8_t *kstack = (uint8_t *)kmalloc(PROC_KSTACK_SIZE);
     if (!kstack) {
         serial_write_string("process: spawn failed - kmalloc for kernel stack\n");
@@ -173,6 +183,7 @@ int process_spawn(const char *path) {
     p->regs.rsp = align_down(PROC_STACK_BASE + PROC_STACK_PAGES * PAGE_SIZE, 16);
     p->regs.ss = 0x23;  /* GDT_USER_DATA | 3 */
     p->pml4_phys = pml4_phys;
+    p->kstack_base = kstack;
     p->kstack_top = (uint64_t)&kstack[PROC_KSTACK_SIZE];
     p->parent_pid = -1;
     p->exit_code = 0;
@@ -186,6 +197,38 @@ int process_spawn(const char *path) {
     serial_write_hex64(eh->e_entry);
     serial_write_string("\n");
     return slot;
+}
+
+/* PML4 slot every process-private mapping lives under (see process.h's
+ * PROC_LOAD_BASE/PROC_STACK_BASE comment) - the only slot vmm_destroy_
+ * process_pml4() is ever told to walk, so the shared kernel slot(s) can
+ * never be freed by this call. */
+#define PROC_PML4_SLOT ((PROC_LOAD_BASE >> 39) & 0x1FF)
+
+void process_free_resources(int pid) {
+    struct process *p = process_get(pid);
+    if (!p) {
+        return;
+    }
+#if defined(GOS_TEST_PHASE25_DEBUG)
+    serial_write_string("DEBUG: pmm_free_pages before destroy = ");
+    serial_write_uint(pmm_free_pages());
+    serial_write_string("\n");
+#endif
+    if (p->pml4_phys) {
+        vmm_destroy_process_pml4(p->pml4_phys, PROC_PML4_SLOT);
+        p->pml4_phys = 0;
+    }
+#if defined(GOS_TEST_PHASE25_DEBUG)
+    serial_write_string("DEBUG: pmm_free_pages after destroy, before kstack free = ");
+    serial_write_uint(pmm_free_pages());
+    serial_write_string("\n");
+#endif
+    if (p->kstack_base) {
+        kfree(p->kstack_base);
+        p->kstack_base = 0;
+        p->kstack_top = 0;
+    }
 }
 
 static int pick_next_ready(int after) {

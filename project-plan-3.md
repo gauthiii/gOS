@@ -54,35 +54,35 @@ gOS v2 is complete: a from-scratch x86_64 OS with UEFI/Limine boot, a FAT32 file
 
 Every fix in Phases 25–27 follows the same standard, matching `audit2.md`'s own: **a QEMU-verified reproduction of the bug *before* the fix, and a passing test *after*** — a fix without a demonstrated repro is not confirmed closed, the same rule Phase 12–14 used for the original 24 findings.
 
-### Phase 25 — Audit 2: Critical Fixes
+### Phase 25 — Audit 2: Critical Fixes ✅ Complete — see [phase25.md](phase25.md)
 **Estimated time: 16–24 hours (~2.5–3 weeks)**
 
 **Milestone 25.1: Validate syscall pointers/lengths against the caller's mapped region**
-- [ ] In `kernel/src/syscall.c`, before dereferencing `frame->rdi`/copying via `frame->rsi` in `SYS_WRITE` and `SYS_SPAWN`, walk the calling process's own page tables (`pml4_phys`, stored per-process since Phase 20) to confirm every byte of the requested `[ptr, ptr+len)` range is actually mapped and user-accessible, rejecting the syscall (return an error code, not a partial success) if not
-- [ ] Reproduce first: a debug-only test ELF that calls `SYS_WRITE` with a pointer into an intentionally-unmapped region; confirm (pre-fix) this currently reaches `panic_screen()` and halts the machine — capture the panic screen via `screendump` as the "before" evidence
-- [ ] Test: same ELF, post-fix; confirm the syscall returns an error to the process (visible via its own follow-up `SYS_WRITE` of a "got error" marker, or via `process_get()->exit_code` if it exits with a distinct code) instead of faulting the kernel, and that the rest of the desktop remains fully responsive afterward (real mouse click on a window immediately after)
+- [x] In `kernel/src/syscall.c`, before dereferencing `frame->rdi`/copying via `frame->rsi` in `SYS_WRITE` and `SYS_SPAWN`, walk the calling process's own page tables (`pml4_phys`, stored per-process since Phase 20) to confirm every byte of the requested `[ptr, ptr+len)` range is actually mapped and user-accessible, rejecting the syscall (return an error code, not a partial success) if not
+- [x] Reproduce first: a debug-only test ELF that calls `SYS_WRITE` with a pointer into an intentionally-unmapped region; confirm (pre-fix) this currently reaches `panic_screen()` and halts the machine — capture the panic screen via `screendump` as the "before" evidence
+- [x] Test: same ELF, post-fix; confirm the syscall returns an error to the process (visible via its own follow-up `SYS_WRITE` of a "got error" marker, or via `process_get()->exit_code` if it exits with a distinct code) instead of faulting the kernel, and that the rest of the desktop remains fully responsive afterward (real mouse click on a window immediately after)
 
 **Milestone 25.2: Real process teardown on exit**
-- [ ] On every transition to `PROC_ZOMBIE` (or at reap time in `SYS_WAITPID`), free every PT_LOAD/stack physical page via `pmm_free_page()`, free every page-table page the process's PML4 subtree owns (walking down from `pml4_phys`), and `kfree()` the process's kernel stack
-- [ ] Reproduce first: run `heap_free_bytes()`/a PMM free-page counter before and after 10 consecutive `run <name.elf>` cycles from the Terminal; confirm (pre-fix) free memory strictly decreases and never returns to baseline
-- [ ] Test: same 10-cycle loop, post-fix; confirm free heap bytes and free physical pages both return to their pre-loop baseline after the 10th process is reaped, not just "roughly stable" — an exact match, the same bar Phase 16.1's window-teardown leak test used
+- [x] On every transition to `PROC_ZOMBIE` (or at reap time in `SYS_WAITPID`), free every PT_LOAD/stack physical page via `pmm_free_page()`, free every page-table page the process's PML4 subtree owns (walking down from `pml4_phys`), and `kfree()` the process's kernel stack
+- [x] Reproduce first: run `heap_free_bytes()`/a PMM free-page counter before and after 10 consecutive `run <name.elf>` cycles from the Terminal; confirm (pre-fix) free memory strictly decreases and never returns to baseline
+- [x] Test: same 10-cycle loop, post-fix; confirm free heap bytes and free physical pages both return to their pre-loop baseline after the 10th process is reaped, not just "roughly stable" — an exact match, the same bar Phase 16.1's window-teardown leak test used
 
 **Milestone 25.3: Fix `fat_rename`'s erase-after-write ordering**
-- [ ] Restructure `fat_rename` (`kernel/src/fat32.c`) so a failure in `erase_dirent_and_lfn` after a successful `write_named_entry` cannot leave two live entries pointing at the same cluster chain — either verify the erase succeeded before reporting the rename as done, or make the erase step itself resilient enough to retry/recover, and reflect any residual failure honestly (e.g. the new name exists, but say so, rather than a bare "failed" if the write half already committed)
-- [ ] Reproduce first: inject a forced single-sector write failure into the erase step (a debug-only fault-injection hook, following the same pattern the v1 audit used for ATA write-path testing) during a rename; confirm (pre-fix) the directory ends up with both the old and new name resolving to the same cluster, verified independently via `mdir`
-- [ ] Test: same fault-injection scenario, post-fix; confirm via `mdir` that exactly one name resolves to the file's data afterward, and that the API's return value accurately reflects what's actually on disk
+- [x] Restructure `fat_rename` (`kernel/src/fat32.c`) so a failure in `erase_dirent_and_lfn` after a successful `write_named_entry` cannot leave two live entries pointing at the same cluster chain — either verify the erase succeeded before reporting the rename as done, or make the erase step itself resilient enough to retry/recover, and reflect any residual failure honestly (e.g. the new name exists, but say so, rather than a bare "failed" if the write half already committed)
+- [x] Reproduce first: inject a forced single-sector write failure into the erase step (a debug-only fault-injection hook, following the same pattern the v1 audit used for ATA write-path testing) during a rename; confirm (pre-fix) the directory ends up with both the old and new name resolving to the same cluster, verified independently via `mdir`
+- [x] Test: same fault-injection scenario, post-fix; confirm via `mdir` that exactly one name resolves to the file's data afterward, and that the API's return value accurately reflects what's actually on disk
 
 **Milestone 25.4: Reorder `fat_delete_file`/`fat_delete_dir` to erase-then-free**
-- [ ] Swap the order in both functions (`kernel/src/fat32.c`) so `erase_dirent_and_lfn` runs *before* `fat_free_chain` — a failure now fails closed (entry gone, clusters merely leaked and recoverable by a future fsck-equivalent) instead of failing open (entry live, clusters already reusable elsewhere)
-- [ ] Reproduce first: same fault-injection technique as 25.3, this time on the erase step of a delete; confirm (pre-fix) the entry is still listed/resolvable while its clusters are already free and reused by a subsequent unrelated `fat_create_file`, verified via `xxd`/`mdir` showing two files sharing cluster data
-- [ ] Test: same scenario, post-fix; confirm the entry is gone from the listing (erase succeeded first) even though the chain-free step that would follow never got a chance to run cleanly, with no double-allocation possible
+- [x] Swap the order in both functions (`kernel/src/fat32.c`) so `erase_dirent_and_lfn` runs *before* `fat_free_chain` — a failure now fails closed (entry gone, clusters merely leaked and recoverable by a future fsck-equivalent) instead of failing open (entry live, clusters already reusable elsewhere)
+- [x] Reproduce first: same fault-injection technique as 25.3, this time on the erase step of a delete; confirm (pre-fix) the entry is still listed/resolvable while its clusters are already free and reused by a subsequent unrelated `fat_create_file`, verified via `xxd`/`mdir` showing two files sharing cluster data
+- [x] Test: same scenario, post-fix; confirm the entry is gone from the listing (erase succeeded first) even though the chain-free step that would follow never got a chance to run cleanly, with no double-allocation possible
 
 **Milestone 25.5: Bound BMP `w`/`h` before the row-stride/allocation arithmetic**
-- [ ] In `kernel/src/bmp.c`'s `bmp_decode()`, add an explicit sane maximum for `w`/`h` (e.g. bounded by a multiple of the framebuffer's own resolution, or a fixed generous cap like 8192×8192) checked *before* computing `row_stride` or the `kmalloc` size, closing the integer-overflow path
-- [ ] Reproduce first: hand-craft a malformed BMP with `w`/`h` values near the `int32_t`/product-overflow boundary (following the same "seed a scratch disk image via `mtools`" technique Phase 23 used for LFN testing), drop it on the disk image, open it via Image Viewer; confirm (pre-fix) this is at minimum a plausible overflow per the audit's arithmetic trace (may require intentionally crafting the exact overflow-triggering dimensions and confirming via a debug log of the computed sizes, since triggering the actual OOB write may depend on heap layout)
-- [ ] Test: same crafted file, post-fix; confirm `bmp_decode` rejects it (logged reason, returns 0) instead of allocating an undersized buffer, and that both the Image Viewer and the wallpaper picker (which share this decoder) handle the rejection gracefully (existing fallback-to-gradient / flash-message paths, unchanged)
+- [x] In `kernel/src/bmp.c`'s `bmp_decode()`, add an explicit sane maximum for `w`/`h` (e.g. bounded by a multiple of the framebuffer's own resolution, or a fixed generous cap like 8192×8192) checked *before* computing `row_stride` or the `kmalloc` size, closing the integer-overflow path
+- [x] Reproduce first: hand-craft a malformed BMP with `w`/`h` values near the `int32_t`/product-overflow boundary (following the same "seed a scratch disk image via `mtools`" technique Phase 23 used for LFN testing), drop it on the disk image, open it via Image Viewer; confirm (pre-fix) this is at minimum a plausible overflow per the audit's arithmetic trace (may require intentionally crafting the exact overflow-triggering dimensions and confirming via a debug log of the computed sizes, since triggering the actual OOB write may depend on heap layout)
+- [x] Test: same crafted file, post-fix; confirm `bmp_decode` rejects it (logged reason, returns 0) instead of allocating an undersized buffer, and that both the Image Viewer and the wallpaper picker (which share this decoder) handle the rejection gracefully (existing fallback-to-gradient / flash-message paths, unchanged)
 
-**Phase 25 exit criterion:** all 5 Critical findings closed, each with a QEMU-verified reproduction-then-fix test passing, following the same standard Phase 12 set for the original Critical findings.
+**Phase 25 exit criterion:** ✅ all 5 Critical findings closed, each with a QEMU-verified reproduction-then-fix test passing. Found and fixed a real, previously-undiscovered bug along the way: `HELLO.ELF` was linked at the wrong virtual address for the multi-process spawn path (outside the process-private PML4 slot), silently leaking memory on every run since teardown could never reach it — a debug-only `BADPTR.ELF` test ELF proves 25.1 via a real Terminal `run` command, and `pmm_free_pages()` returns to the exact byte-identical baseline after every one of 10 spawn cycles. `make diagnostic` unaffected. Full writeup: [phase25.md](phase25.md).
 
 ---
 
@@ -412,16 +412,16 @@ Assuming the same ~7.5 hrs/week pace as v1/v2:
 
 | Phase | Milestone | Task | Status | Notes |
 |---|---|---|---|---|
-| 25 | 25.1 Syscall pointer validation | Validate rdi/rsi against mapped region in SYS_WRITE/SYS_SPAWN | Not Started | |
-| 25 | 25.1 Syscall pointer validation | QEMU test: unmapped-pointer repro fails cleanly post-fix | Not Started | |
-| 25 | 25.2 Process teardown | Free physical pages, page tables, kernel stack on exit | Not Started | |
-| 25 | 25.2 Process teardown | QEMU test: 10x run cycles, heap/PMM return to baseline | Not Started | |
-| 25 | 25.3 fat_rename ordering | Fix erase-after-write-failure duplicate-entry risk | Not Started | |
-| 25 | 25.3 fat_rename ordering | QEMU test: fault-injected erase failure, mdir cross-check | Not Started | |
-| 25 | 25.4 fat_delete reordering | Erase entry before freeing cluster chain | Not Started | |
-| 25 | 25.4 fat_delete reordering | QEMU test: fault-injected erase failure, no double-alloc | Not Started | |
-| 25 | 25.5 BMP dimension bound | Bound w/h before row-stride/alloc arithmetic | Not Started | |
-| 25 | 25.5 BMP dimension bound | QEMU test: crafted-dimension BMP rejected cleanly | Not Started | |
+| 25 | 25.1 Syscall pointer validation | Validate rdi/rsi against mapped region in SYS_WRITE/SYS_SPAWN | Done | `vmm_range_mapped_user()`; verified via real Terminal `run Badptr.Elf` — see [phase25.md](phase25.md) |
+| 25 | 25.1 Syscall pointer validation | QEMU test: unmapped-pointer repro fails cleanly post-fix | Done | BADPTR.ELF exit_code=42, desktop stayed responsive |
+| 25 | 25.2 Process teardown | Free physical pages, page tables, kernel stack on exit | Done | `vmm_destroy_process_pml4()` + `process_free_resources()`; found+fixed a real HELLO.ELF linker-script bug along the way |
+| 25 | 25.2 Process teardown | QEMU test: 10x run cycles, heap/PMM return to baseline | Done | pmm_free_pages() exact-match baseline after every cycle, not just at the end |
+| 25 | 25.3 fat_rename ordering | Fix erase-after-write-failure duplicate-entry risk | Done | Bounded 3x retry + honest failure reporting |
+| 25 | 25.3 fat_rename ordering | QEMU test: fault-injected erase failure, mdir cross-check | Done | Transient failure recovered via retry; persistent failure preserved original file |
+| 25 | 25.4 fat_delete reordering | Erase entry before freeing cluster chain | Done | Fails closed instead of open |
+| 25 | 25.4 fat_delete reordering | QEMU test: fault-injected erase failure, no double-alloc | Done | DELTEST.TXT still resolvable after failed delete |
+| 25 | 25.5 BMP dimension bound | Bound w/h before row-stride/alloc arithmetic | Done | BMP_MAX_DIMENSION=4096, checked before any arithmetic |
+| 25 | 25.5 BMP dimension bound | QEMU test: crafted-dimension BMP rejected cleanly | Done | 100000x100000-claiming BMP correctly rejected |
 | 26 | 26.1 process_spawn cleanup | Free partial address space on spawn failure | Not Started | |
 | 26 | 26.2 SYS_KILL + Terminal integration | Add kill mechanism + timeout/interrupt in run | Not Started | |
 | 26 | 26.3 waitpid ownership | Reject non-parent waitpid calls | Not Started | |

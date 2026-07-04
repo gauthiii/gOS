@@ -75,6 +75,7 @@ gOS targets a real (or emulated) x86_64 PC. The numbers below are the environmen
 - **FAT32 long filename (VFAT) support (Track D, Phase 23):** filenames up to 63 ASCII characters now read, display, create, rename, and delete correctly, reconstructing/generating the VFAT long-name directory entries (checksum-linked to a generated `BASENAM~1.EXT`-style short alias) that were previously just skipped. Verified in both directions against `mtools` (`mdir`/`mtype`) — host-seeded long names read correctly by gOS, and gOS-created/renamed/deleted long names read correctly from the host afterward — with the full pre-existing regression suite unaffected — see [phase23.md](version2/phase23.md)
 - **Shell, Calculator & Image Viewer (Track E, Phase 24):** a kernel-mode Terminal (`ls`/`cd`/`run <NAME.ELF>`/`help`/`clear`) whose `run` command performs a genuine ring-3 spawn-and-wait through Phase 20's real scheduler (`run Child.Elf` prints the exact exit code, 7, round-tripped from the ELF's own `SYS_EXIT`); a Calculator supporting integer `+ - x /` (verified against the milestone's own `1,2,+,7,= → 19` example, click for click); and an Image Viewer reusing Milestone 15.3's BMP decoder (extracted into a shared `bmp.c` module), opened by double-clicking any `.BMP` file in the File Manager and pixel-verified byte-for-byte against the source file via an independent Python decode. Found and fixed a real bug along the way: the Terminal's command parser was including its own echoed prompt text in the string it tried to execute — see [phase24.md](version2/phase24.md)
 - **Desktop wallpaper picker & clock fix (Patch v2):** a right-click desktop context menu offers 5 wallpaper choices (Gradient, Default, plus 3 user-provided images converted from JPEG to gOS's supported BMP format, since there's no JPEG decoder - by the same scope choice Phase 15.3 made originally), replacing a previously hidden F2-only toggle; the taskbar clock's margin no longer touches the screen edge. Found and fixed two real bugs: the context menu could render partly off-screen near a corner, and two of the wallpaper options had their labels swapped relative to their images — see [phase-patchv2.md](version2/phase-patchv2.md)
+- **Audit 2 Critical fixes (v3 Track A, Phase 25):** a second read-only audit ([version2/audit2.md](version2/audit2.md)) reviewed everything v2 added and found 28 new issues; Phase 25 closes all 5 Critical ones. Every syscall taking a user pointer now validates it's actually mapped in the calling process before touching it — a bad pointer used to page-fault the kernel and freeze the whole machine, now it's rejected and the process keeps running (proven via a real Terminal `run Badptr.Elf`). Process exit now frees 100% of its memory immediately (every page, every page table, the kernel stack) instead of leaking forever. A mid-write disk failure during a file rename or delete can no longer leave two directory entries sharing one cluster chain, or a live entry pointing at already-freed clusters. A crafted image file can no longer overflow the BMP decoder's size arithmetic. Found and fixed a real bug along the way: `HELLO.ELF` was linked at the wrong virtual address for the multi-process spawn path, silently leaking memory on every run since process teardown could never reach it — see [phase25.md](phase25.md)
 
 ---
 
@@ -515,6 +516,14 @@ The "Mac" and "Custom" menu options had ended up pointing at each other's image 
 ![Mac now showing the correct (abstract) image](screenshots/phase-patchv2_mac_correct.png)
 ![Windows showing the classic Bliss-style wallpaper, unaffected by the swap](screenshots/phase-patchv2_windows_correct.png)
 
+### Phase 25 — Audit 2: Critical Fixes (v3 Track A)
+
+**A bad user-mode pointer no longer freezes the kernel** ([phase25.md](phase25.md), Milestone 25.1)
+`run Badptr.Elf` deliberately calls a syscall with an unmapped pointer - the kernel now rejects it instead of page-faulting, the process exits normally with its marker code, and the desktop stays fully responsive afterward.
+
+![Terminal showing BADPTR.ELF surviving and exiting with code 42](screenshots/phase25_badptr_run.png)
+![The desktop still fully responsive to a real mouse click right after](screenshots/phase25_desktop_responsive.png)
+
 ---
 
 ## Project structure
@@ -534,8 +543,10 @@ screenshots/         milestone screenshots (including phase11_demo.gif) referenc
 tools/               host-side helper scripts (e.g. make_wallpaper.py, which generates tools/wallpaper.bmp)
 project-plan-3.md    v3 project plan (current/active): audit 2 remediation (Track A) + foundation gaps
                       (Track B) + UI/app functionality (Track C) + platform stretch (Track D)
-tools/userland/      standalone user-mode test programs (ring3_test.asm, hello.asm/user.ld,
-                      spinner.asm/child.asm/parent.asm/proc.ld) - built independently of the
+phase25.md           v3 Track A, Phase 1: 5 Critical audit-2 fixes (syscall pointer validation, real
+                      process teardown, FAT32 rename/delete ordering, BMP dimension bound)
+tools/userland/      standalone user-mode test programs (ring3_test.asm, hello.asm/proc.ld,
+                      spinner.asm/child.asm/parent.asm/badptr.asm) - built independently of the
                       kernel, no libc/crt0
 version1/            all v1.0 planning/completion docs, moved here after v2 planning began
   PROJECT_PLAN.md     the full phase-by-phase roadmap and status tracker
@@ -569,6 +580,7 @@ version2/            all v2 planning/completion docs, moved here after v3 planni
 
 - [project-plan-3.md](project-plan-3.md) — the current, active plan: Track A (audit 2 remediation, Phases 25–27.5) blocks Track B (foundation gaps, Phases 28–31), which blocks Track C (UI/apps, Phases 32–35), which blocks Track D (platform stretch, Phases 36–37), ending with a third audit pass (Phase 38)
 - [version2/audit2.md](version2/audit2.md) — a second read-only, no-changes-made audit, scoped against everything v2's Tracks A–E added (Phases 12–24 + the wallpaper-picker patch): 28 ranked findings (5 Critical, 6 High, 10 Medium, 7 Low) plus a clean regression check against all 24 v1.0 findings — this is what project-plan-3.md's Track A fully remediates
+- [phase25.md](phase25.md) — Track A's first phase: all 5 Critical audit-2 findings fixed, each with a QEMU-verified reproduction before the fix and a passing test after; includes a full symptom/diagnosis/fix writeup for a genuine bug found during testing (`HELLO.ELF` linked at the wrong virtual address for the multi-process spawn path, silently leaking memory on every run)
 - [version2/project-plan-2.md](version2/project-plan-2.md) — the completed v2 plan: audit remediation (Track A) + new features (Track B), plus Tracks C/D/E (OS internals, desktop/storage, apps), with a full status tracker
 - [version2/phase12.md](version2/phase12.md), [version2/phase13.md](version2/phase13.md), [version2/phase14.md](version2/phase14.md) — Track A's three phases: every one of the 24 audit findings, each with the fix, a live QEMU reproduction of the original bug (before/after), and exact commands to reproduce every test
 - [version2/phase15.md](version2/phase15.md) — Track B's first phase: the real arrow cursor, gradient wallpaper, and BMP wallpaper loader, each with a "command to test" and a "command to see", plus an independent host-side pixel cross-check against the source BMP

@@ -798,6 +798,53 @@ static int write_dirent_at(struct dirent_location *loc, const void *entry) {
     return ata_write_sector(loc->sector_lba, sector);
 }
 
+#if defined(GOS_TEST_FAULT_INJECT)
+/* Milestone 25.3/25.4 (audit2 Critical #3/#4): a debug-only hook letting a
+ * test deterministically fail the Nth subsequent erase-path sector write
+ * (0 = fail the very next one), simulating a single ATA write failure at
+ * an exact point in a rename/delete sequence without needing real,
+ * non-reproducible disk-level fault injection. Inert (never checked) in
+ * normal builds. */
+static int fault_inject_countdown = -1; /* -1 = disabled, -2 = persistent (always fail) */
+
+void fat32_test_inject_write_failure(int after_n_writes) {
+    fault_inject_countdown = after_n_writes;
+}
+
+void fat32_test_inject_persistent_write_failure(void) {
+    fault_inject_countdown = -2;
+}
+
+void fat32_test_clear_fault_injection(void) {
+    fault_inject_countdown = -1;
+}
+
+static int test_should_fail_write(void) {
+    if (fault_inject_countdown == -2) {
+        return 1; /* persistent - every write fails until explicitly cleared */
+    }
+    if (fault_inject_countdown < 0) {
+        return 0;
+    }
+    if (fault_inject_countdown == 0) {
+        fault_inject_countdown = -1; /* one-shot - fire once, then stay disabled */
+        return 1;
+    }
+    fault_inject_countdown--;
+    return 0;
+}
+#endif
+
+static int erase_write_sector(uint32_t lba, uint8_t *sector) {
+#if defined(GOS_TEST_FAULT_INJECT)
+    if (test_should_fail_write()) {
+        serial_write_string("FAT32: [fault injection] simulated write failure\n");
+        return 0;
+    }
+#endif
+    return ata_write_sector(lba, sector);
+}
+
 /* Marks the short-name entry at `loc` and every long-name entry in `span`
  * (if any) as deleted (0xE5), so a rename/delete leaves no orphaned LFN
  * entries pointing at a checksum that no longer matches anything. */
@@ -808,7 +855,7 @@ static int erase_dirent_and_lfn(struct dirent_location *loc, struct lfn_span *sp
             return 0;
         }
         sector[span->locs[i].offset_in_sector] = 0xE5;
-        if (!ata_write_sector(span->locs[i].sector_lba, sector)) {
+        if (!erase_write_sector(span->locs[i].sector_lba, sector)) {
             return 0;
         }
     }
@@ -816,7 +863,7 @@ static int erase_dirent_and_lfn(struct dirent_location *loc, struct lfn_span *sp
         return 0;
     }
     sector[loc->offset_in_sector] = 0xE5;
-    return ata_write_sector(loc->sector_lba, sector);
+    return erase_write_sector(loc->sector_lba, sector);
 }
 
 /* A name needs VFAT long-name entries if it doesn't fit the classic 8.3
@@ -1268,8 +1315,21 @@ int fat_delete_file(const char *path) {
         return 0;
     }
 
+    /* Milestone 25.4 (audit2 Critical #4): erase the directory entry
+     * BEFORE freeing its cluster chain, not after. If the erase fails
+     * partway (a single disk write error), this now fails closed - the
+     * entry is still live and its clusters are still allocated, so no
+     * other file can be handed those same clusters while this one still
+     * resolves to them. The old order failed open: a chain already marked
+     * free in the FAT, with the directory entry still fully visible and
+     * resolvable, was available for fat_alloc_cluster() to hand to an
+     * unrelated new file while this "deleted-but-not-erased" entry still
+     * pointed at (and could read/write) the very same clusters. */
+    if (!erase_dirent_and_lfn(&loc, &span)) {
+        return 0;
+    }
     fat_free_chain(entry.first_cluster);
-    return erase_dirent_and_lfn(&loc, &span);
+    return 1;
 }
 
 int fat_delete_dir(const char *path) {
@@ -1302,8 +1362,13 @@ int fat_delete_dir(const char *path) {
         return 0; /* directory not empty */
     }
 
+    /* Milestone 25.4: same erase-before-free reordering as fat_delete_file
+     * above, and for the same reason - fail closed, not open. */
+    if (!erase_dirent_and_lfn(&loc, &span)) {
+        return 0;
+    }
     fat_free_chain(entry.first_cluster);
-    return erase_dirent_and_lfn(&loc, &span);
+    return 1;
 }
 
 int fat_rename(const char *path, const char *new_name) {
@@ -1343,5 +1408,27 @@ int fat_rename(const char *path, const char *new_name) {
     if (!write_named_entry(parent_cluster, new_name, entry.attr, entry.first_cluster, entry.size, &new_loc)) {
         return 0;
     }
-    return erase_dirent_and_lfn(&loc, &span);
+
+    /* Milestone 25.3 (audit2 Critical #3): the new entry is now durably
+     * committed - a failure erasing the OLD one from here on would leave
+     * both names resolving to the same cluster chain (real data-corruption
+     * risk: deleting either one frees clusters the other still points at).
+     * A single disk write failure is very often transient, so retry a
+     * bounded number of times before accepting that risk; if every attempt
+     * fails, say so loudly rather than returning a plain, silent 0 that
+     * looks identical to every other rename failure while actually leaving
+     * the volume in this specific, more dangerous state. */
+    int erased = 0;
+    for (int attempt = 0; attempt < 3 && !erased; attempt++) {
+        erased = erase_dirent_and_lfn(&loc, &span);
+    }
+    if (!erased) {
+        serial_write_string("FAT32: WARNING - fat_rename could not erase the old entry \"");
+        serial_write_string(name);
+        serial_write_string("\" after 3 attempts; both it and \"");
+        serial_write_string(new_name);
+        serial_write_string("\" may now resolve to the same data\n");
+        return 0;
+    }
+    return 1;
 }
