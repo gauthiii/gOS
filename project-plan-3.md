@@ -124,40 +124,40 @@ Every fix in Phases 25–27 follows the same standard, matching `audit2.md`'s ow
 
 ---
 
-### Phase 27 — Audit 2: Medium/Low Cleanup
+### Phase 27 — Audit 2: Medium/Low Cleanup ✅ Complete — see [phase27.md](phase27.md)
 **Estimated time: 14–20 hours (~2–2.5 weeks)**
 
 **Milestone 27.1: Calculator sign handling + overflow guard**
-- [ ] Fix `parse_int` (`kernel/src/calculator.c`) to recognize a leading `-` as a sign rather than an invalid "digit", so chaining an operation off a negative result (e.g. `3-5=` then `+4=`) computes correctly
-- [ ] Add an overflow check around the four arithmetic operations (e.g. detect via division-based overflow checks before each operation, matching the existing "Error: div by 0" pattern) and display an "Error: overflow" message instead of a silently wrapped result
-- [ ] Reproduce first: `3 - 5 =` then `+ 4 =`; confirm (pre-fix) the result is wrong. Separately, `999999999999 * 99999999 =`; confirm (pre-fix) a silently wrapped/nonsensical result with no error shown
-- [ ] Test: same two sequences, post-fix; confirm the first produces the mathematically correct result (`2`) and the second shows a clear overflow error instead of a wrong number
+- [x] Fix `parse_int` (`kernel/src/calculator.c`) to recognize a leading `-` as a sign rather than an invalid "digit", so chaining an operation off a negative result (e.g. `3-5=` then `+4=`) computes correctly
+- [x] Add an overflow check around the four arithmetic operations (e.g. detect via division-based overflow checks before each operation, matching the existing "Error: div by 0" pattern) and display an "Error: overflow" message instead of a silently wrapped result
+- [x] Reproduce first: `3 - 5 =` then `+ 4 =`; confirm (pre-fix) the result is wrong. Separately, `999999999999 * 99999999 =`; confirm (pre-fix) a silently wrapped/nonsensical result with no error shown
+- [x] Test: same two sequences, post-fix; confirm the first produces the mathematically correct result (`2`) and the second shows a clear overflow error instead of a wrong number
 
 **Milestone 27.2: Heap backward coalescing**
-- [ ] Extend `kernel/src/heap.c`'s `kfree()` to also coalesce backward with the immediately preceding block when it's free (requires either a backward pointer or a footer-based lookup, whichever fits the existing block-header design with the least disruption)
-- [ ] Reproduce first: a debug scenario allocating/freeing a repeating pattern of small and large (multi-MB, image-sized) blocks designed to strand small free gaps between larger freed regions that forward-only coalescing can't merge; confirm (pre-fix) `heap_grow()` is invoked more times than the total freed space should require
-- [ ] Test: same pattern, post-fix; confirm adjacent free blocks (in both directions) merge into one, and the same workload triggers measurably fewer `heap_grow()` calls / lower peak heap usage
+- [x] Extend `kernel/src/heap.c`'s `kfree()` to also coalesce backward with the immediately preceding block when it's free (requires either a backward pointer or a footer-based lookup, whichever fits the existing block-header design with the least disruption)
+- [x] Reproduce first: a debug scenario allocating/freeing a repeating pattern of small and large (multi-MB, image-sized) blocks designed to strand small free gaps between larger freed regions that forward-only coalescing can't merge; confirm (pre-fix) `heap_grow()` is invoked more times than the total freed space should require
+- [x] Test: same pattern, post-fix; confirm adjacent free blocks (in both directions) merge into one, and the same workload triggers measurably fewer `heap_grow()` calls / lower peak heap usage
 
 **Milestone 27.3: `GOS.CFG` checksum + File Manager geometry sanity check**
-- [ ] Add a checksum (e.g. a simple additive or CRC-style checksum over the record) to `struct settings_record` in `kernel/src/settings.c`, verified on load alongside the existing magic/version/size checks
-- [ ] Range/sanity-check loaded `fm_x`/`fm_y`/`fm_w`/`fm_h` against the screen dimensions before use in `desktop.c`'s `fm_create_window()` call, falling back to the compiled-in defaults for any field that's clearly invalid (negative, zero width/height, or entirely off-screen) rather than trusting the file unconditionally
-- [ ] Reproduce first: hand-corrupt a few bytes of a valid `GOS.CFG`'s payload (via a host-side `mtools`/`xxd` edit) while leaving magic/version/size intact, and separately write an all-zero `fm_w`/`fm_h`; confirm (pre-fix) the corrupted checksum isn't detected, and the zero-geometry case launches an unusable File Manager window
-- [ ] Test: same two corrupted files, post-fix; confirm the checksum mismatch is detected and defaults are used instead, and the invalid geometry is individually replaced with defaults rather than applied verbatim
+- [x] Add a checksum (e.g. a simple additive or CRC-style checksum over the record) to `struct settings_record` in `kernel/src/settings.c`, verified on load alongside the existing magic/version/size checks
+- [x] Range/sanity-check loaded `fm_x`/`fm_y`/`fm_w`/`fm_h` against the screen dimensions before use in `desktop.c`'s `fm_create_window()` call, falling back to the compiled-in defaults for any field that's clearly invalid (negative, zero width/height, or entirely off-screen) rather than trusting the file unconditionally
+- [x] Reproduce first: hand-corrupt a few bytes of a valid `GOS.CFG`'s payload (via a host-side `mtools`/`xxd` edit) while leaving magic/version/size intact, and separately write an all-zero `fm_w`/`fm_h`; confirm (pre-fix) the corrupted checksum isn't detected, and the zero-geometry case launches an unusable File Manager window
+- [x] Test: same two corrupted files, post-fix; confirm the checksum mismatch is detected and defaults are used instead, and the invalid geometry is individually replaced with defaults rather than applied verbatim
 
 **Milestone 27.4: Remaining Medium/Low findings**
-- [ ] #12 Taskbar right-click wrongly opening the desktop wallpaper menu (`kernel/src/desktop.c`/`taskbar.c`) — exclude the taskbar's y-range from the desktop's right-click handler. Test: right-click on a taskbar entry, confirm no wallpaper menu appears
-- [ ] #14 Redundant wallpaper reload on re-selecting the active option (`kernel/src/wallpaper.c`) — add an `idx == current_selection` short-circuit to `wallpaper_select()`. Test: re-click the currently-active wallpaper option, confirm via serial log that no `fat_read_file`/`bmp_decode` call happens
-- [ ] #18 Short-alias-exhaustion generic error code (`kernel/src/fat32.c`) — give `generate_short_alias` exhaustion its own distinguishable return/log path from generic disk-full. Test: create 9 colliding-basename siblings, confirm the 10th's failure is logged distinctly from a real disk-full failure
-- [ ] #19 `find_free_slot_n`'s cluster-boundary limitation (`kernel/src/fat32.c`) — either extend the run-search to carry `run_len` across a cluster boundary, or explicitly document it as an accepted simplification if the fix proves disproportionately invasive (a genuine scope call to make during implementation, not before)
-- [ ] #20 `erase_dirent_and_lfn` silent degrade-to-short-name on partial failure (`kernel/src/fat32.c`) — surface a distinguishable log/error when a partial erase leaves a name degraded, rather than silently succeeding-looking. Test: fault-inject a partial erase, confirm a distinct log line appears instead of silent degrade
-- [ ] #21 `cd` path truncation (`kernel/src/terminal.c`) — detect when the joined candidate path would exceed the buffer and reject with an error instead of silently truncating. Test: `cd` into deeply nested long-named directories until truncation would occur, confirm an explicit error instead of a silent wrong-directory `cd`
-- [ ] #22 `run` with an embedded-space name (`kernel/src/terminal.c`) — detect a space in the parsed name and give a clear "invalid name" message instead of the generic spawn-failure message. Test: `run My File.ELF`, confirm a clear diagnostic
-- [ ] #23 `on_close` callback reentrancy guard (`kernel/src/window.c`) — clear/guard against `window_close()` being re-entered for the same index from within its own `on_close` callback. Test: a debug-only `on_close` that calls `window_close()` on itself, confirm no double-free/double-invoke
-- [ ] #24 Right-click menu not dismissed by a click on a window (`kernel/src/desktop.c`) — dismiss `menu_visible` on any left OR right click that lands on a window while the menu is open. Test: open the menu, click a window, confirm the menu is gone on the next screendump
-- [ ] #26 RTC century handling (`kernel/src/rtc.c`) — read CMOS register 0x32 when present instead of hardcoding `+2000`. Test: boot with a QEMU `-rtc` date past 2099 (if QEMU's CMOS emulation supports it) or document as a known limitation if it doesn't, confirming the read path at least attempts the century register
-- [ ] #27 Image Viewer memory/window budget (`kernel/src/imageviewer.c`) — add an explicit pre-check (e.g. estimated decode size against remaining heap) before attempting a large open, with a clear "image too large" message rather than relying on the existing graceful-failure paths alone. Test: attempt to open a very large image with a heap deliberately near-exhausted, confirm a clear message instead of a generic allocation-failure message
+- [x] #12 Taskbar right-click wrongly opening the desktop wallpaper menu (`kernel/src/desktop.c`/`taskbar.c`) — exclude the taskbar's y-range from the desktop's right-click handler. Test: right-click on a taskbar entry, confirm no wallpaper menu appears
+- [x] #14 Redundant wallpaper reload on re-selecting the active option (`kernel/src/wallpaper.c`) — add an `idx == current_selection` short-circuit to `wallpaper_select()`. Test: re-click the currently-active wallpaper option, confirm via serial log that no `fat_read_file`/`bmp_decode` call happens
+- [x] #18 Short-alias-exhaustion generic error code (`kernel/src/fat32.c`) — give `generate_short_alias` exhaustion its own distinguishable return/log path from generic disk-full. Test: create 9 colliding-basename siblings, confirm the 10th's failure is logged distinctly from a real disk-full failure
+- [x] #19 `find_free_slot_n`'s cluster-boundary limitation (`kernel/src/fat32.c`) — either extend the run-search to carry `run_len` across a cluster boundary, or explicitly document it as an accepted simplification if the fix proves disproportionately invasive (a genuine scope call to make during implementation, not before)
+- [x] #20 `erase_dirent_and_lfn` silent degrade-to-short-name on partial failure (`kernel/src/fat32.c`) — surface a distinguishable log/error when a partial erase leaves a name degraded, rather than silently succeeding-looking. Test: fault-inject a partial erase, confirm a distinct log line appears instead of silent degrade
+- [x] #21 `cd` path truncation (`kernel/src/terminal.c`) — detect when the joined candidate path would exceed the buffer and reject with an error instead of silently truncating. Test: `cd` into deeply nested long-named directories until truncation would occur, confirm an explicit error instead of a silent wrong-directory `cd`
+- [x] #22 `run` with an embedded-space name (`kernel/src/terminal.c`) — detect a space in the parsed name and give a clear "invalid name" message instead of the generic spawn-failure message. Test: `run My File.ELF`, confirm a clear diagnostic
+- [x] #23 `on_close` callback reentrancy guard (`kernel/src/window.c`) — clear/guard against `window_close()` being re-entered for the same index from within its own `on_close` callback. Test: a debug-only `on_close` that calls `window_close()` on itself, confirm no double-free/double-invoke
+- [x] #24 Right-click menu not dismissed by a click on a window (`kernel/src/desktop.c`) — dismiss `menu_visible` on any left OR right click that lands on a window while the menu is open. Test: open the menu, click a window, confirm the menu is gone on the next screendump
+- [x] #26 RTC century handling (`kernel/src/rtc.c`) — read CMOS register 0x32 when present instead of hardcoding `+2000`. Test: boot with a QEMU `-rtc` date past 2099 (if QEMU's CMOS emulation supports it) or document as a known limitation if it doesn't, confirming the read path at least attempts the century register
+- [x] #27 Image Viewer memory/window budget (`kernel/src/imageviewer.c`) — add an explicit pre-check (e.g. estimated decode size against remaining heap) before attempting a large open, with a clear "image too large" message rather than relying on the existing graceful-failure paths alone. Test: attempt to open a very large image with a heap deliberately near-exhausted, confirm a clear message instead of a generic allocation-failure message
 
-**Phase 27 exit criterion:** all 10 Medium and 7 Low findings closed or explicitly documented (per #19's allowed scope call), each with before/after evidence proportionate to its severity (full repro-then-fix for anything with a real failure mode; a straightforward before/after log line for pure UX/error-message improvements).
+**Phase 27 exit criterion:** ✅ all 10 Medium and 7 Low findings closed (16 with a direct fix, #19 documented as an accepted simplification per this plan's own allowance). A regression was found and fixed during testing: the #23 reentrancy-guard fix initially reordered `window_close()`'s `in_use` clearing, breaking the 300-cycle window stress test; replaced with a dedicated `window_closing[]` flag scoped to only the reentrant case. `make diagnostic` passes clean. Full writeup: [phase27.md](phase27.md).
 
 ---
 
@@ -428,10 +428,10 @@ Assuming the same ~7.5 hrs/week pace as v1/v2:
 | 26 | 26.4 LFN multi-slot write fix | Fix partial-failure 0x00 sentinel hiding entries | Done | `rollback_partial_entries()`; sentinels + entry count unaffected by fault-injected partial write |
 | 26 | 26.5 Desktop menu z-order | Draw menu after windows, fix hit-test footprint | Done | `desktop_render_menu_overlay()`; menu now renders on top of windows, screendump-verified |
 | 26 | 26.6 Terminal prompt guard | Block backspace past prompt boundary | Done | 40 backspaces couldn't erase the 3-char prompt; next command parsed cleanly |
-| 27 | 27.1 Calculator fixes | Sign handling + overflow guard | Not Started | |
-| 27 | 27.2 Heap backward coalescing | Extend kfree to merge backward | Not Started | |
-| 27 | 27.3 Config checksum + geometry check | GOS.CFG checksum, FM geometry sanity check | Not Started | |
-| 27 | 27.4 Remaining 11 findings | #12,14,18,19,20,21,22,23,24,26,27 | Not Started | |
+| 27 | 27.1 Calculator fixes | Sign handling + overflow guard | Done | see [phase27.md](phase27.md) |
+| 27 | 27.2 Heap backward coalescing | Extend kfree to merge backward | Done | see [phase27.md](phase27.md) |
+| 27 | 27.3 Config checksum + geometry check | GOS.CFG checksum, FM geometry sanity check | Done | see [phase27.md](phase27.md) |
+| 27 | 27.4 Remaining 11 findings | #12,14,18,19,20,21,22,23,24,26,27 | Done | see [phase27.md](phase27.md) |
 | 27.5 | 27.5.1 Regression: v1.0 findings | Re-verify all 24 original findings against current code | Not Started | |
 | 27.5 | 27.5.2 Regression: v2 findings | Re-verify all 28 audit2 findings against Phase 25-27 code | Not Started | |
 | 28 | 28.1 read/open/close syscalls | Add with 25.1's validation discipline | Not Started | |

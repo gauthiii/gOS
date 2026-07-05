@@ -1,4 +1,5 @@
 #include <calculator.h>
+#include <stdint.h>
 #include <window.h>
 #include <fb.h>
 #include <font.h>
@@ -47,11 +48,41 @@ static void cal_press_op(char op) {
 }
 
 static int64_t parse_int(const char *s, int len) {
+    int neg = 0;
+    int i = 0;
+    if (len > 0 && s[0] == '-') {
+        neg = 1;
+        i = 1;
+    }
     int64_t v = 0;
-    for (int i = 0; i < len; i++) {
+    for (; i < len; i++) {
         v = v * 10 + (s[i] - '0');
     }
-    return v;
+    return neg ? -v : v;
+}
+
+/* Detects signed 64-bit overflow for the four ops via a division-based
+ * check performed BEFORE the operation, matching the existing "Error: div
+ * by 0" pattern of catching a bad op ahead of computing a wrong result. */
+static int op_would_overflow(char op, int64_t left, int64_t right) {
+    switch (op) {
+        case '+':
+            if (right > 0 && left > INT64_MAX - right) return 1;
+            if (right < 0 && left < INT64_MIN - right) return 1;
+            return 0;
+        case '-':
+            if (right < 0 && left > INT64_MAX + right) return 1;
+            if (right > 0 && left < INT64_MIN + right) return 1;
+            return 0;
+        case '*':
+            if (left == 0 || right == 0) return 0;
+            if (left == -1 && right == INT64_MIN) return 1;
+            if (right == -1 && left == INT64_MIN) return 1;
+            int64_t product = left * right;
+            return product / right != left;
+        default:
+            return 0;
+    }
 }
 
 static void append_result_digits(int64_t v) {
@@ -78,7 +109,10 @@ static void cal_press_equals(void) {
     while (cal_expr[len]) len++;
     int op_pos = -1;
     char op = 0;
-    for (int i = 0; i < len; i++) {
+    /* Skip a leading '-' when scanning for the operator: it's the sign of
+     * the left operand (e.g. a chained "-2+4"), not the operator itself. */
+    int scan_start = (len > 0 && cal_expr[0] == '-') ? 1 : 0;
+    for (int i = scan_start; i < len; i++) {
         if (is_op(cal_expr[i])) {
             op_pos = i;
             op = cal_expr[i];
@@ -94,6 +128,18 @@ static void cal_press_equals(void) {
     if (op == '/' && right == 0) {
         int i = 0;
         const char *msg = "Error: div by 0";
+        while (msg[i] && i < (int)sizeof(cal_error) - 1) {
+            cal_error[i] = msg[i];
+            i++;
+        }
+        cal_error[i] = '\0';
+        cal_expr[0] = '\0';
+        cal_result_shown = 1;
+        return;
+    }
+    if (op_would_overflow(op, left, right)) {
+        int i = 0;
+        const char *msg = "Error: overflow";
         while (msg[i] && i < (int)sizeof(cal_error) - 1) {
             cal_error[i] = msg[i];
             i++;

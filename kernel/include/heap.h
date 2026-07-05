@@ -15,6 +15,12 @@ uint64_t heap_corruption_count(void);
  * original baseline instead of leaking. */
 uint64_t heap_free_bytes(void);
 
+/* Number of times heap_grow() has actually mapped new pages since boot.
+ * Used by Milestone 27.2's regression test to prove backward coalescing
+ * reduces heap growth for a workload that strands free gaps between
+ * larger freed regions. */
+uint64_t heap_grow_count(void);
+
 /* Stress-tests kmalloc/kfree with a mix of small/large blocks, verifies
  * write/read integrity, and deliberately corrupts one buffer's footer to
  * confirm the canary/guard actually detects overruns (not just that it

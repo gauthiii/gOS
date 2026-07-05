@@ -703,7 +703,19 @@ static void loc_advance(struct dirent_location loc, int n, struct dirent_locatio
  * with a fresh (fully-zeroed, hence fully-free) cluster if no existing
  * cluster has a long enough run. Reports only the first slot's location;
  * the remaining need_count-1 slots are the following contiguous records
- * (see loc_advance). */
+ * (see loc_advance).
+ *
+ * #19 (audit2 Medium, accepted simplification): a free run is never carried
+ * across a cluster boundary - a long-filename entry run split across two
+ * clusters (e.g. 3 free slots at the tail of one cluster, 2 more at the
+ * head of the next) is not found even though it would fit, and a fresh
+ * cluster is grown instead. Extending this would require loc_advance() to
+ * walk the FAT chain itself instead of doing flat LBA-offset arithmetic,
+ * since FAT clusters are not guaranteed physically contiguous on disk -
+ * a materially bigger structural change than the run-search loop itself.
+ * Accepted as a known limitation per project-plan-3.md's own allowance:
+ * this only ever wastes directory space (an early cluster is grown sooner
+ * than strictly necessary), it never produces an incorrect result. */
 static int find_free_slot_n(uint32_t dir_cluster, int need_count, struct dirent_location *loc) {
     uint32_t cluster_bytes = sectors_per_cluster * bytes_per_sector;
     static uint8_t buf[FAT32_CLUSTER_BUF_MAX];
@@ -866,10 +878,17 @@ static int erase_dirent_and_lfn(struct dirent_location *loc, struct lfn_span *sp
     static uint8_t sector[ATA_SECTOR_SIZE];
     for (int i = 0; i < span->count; i++) {
         if (!ata_read_sector(span->locs[i].sector_lba, sector)) {
+            /* #20: a partial LFN erase (some long-name entries gone, the
+             * short-name entry still live) makes the file only resolvable
+             * by its short 8.3 alias from here on - previously this
+             * degraded silently (a bare 0 return indistinguishable from any
+             * other erase failure). */
+            serial_write_string("FAT32: partial LFN erase failure - entry degraded to short-name-only\n");
             return 0;
         }
         sector[span->locs[i].offset_in_sector] = 0xE5;
         if (!erase_write_sector(span->locs[i].sector_lba, sector)) {
+            serial_write_string("FAT32: partial LFN erase failure - entry degraded to short-name-only\n");
             return 0;
         }
     }
@@ -1038,7 +1057,14 @@ static int write_named_entry(uint32_t parent_cluster, const char *name, uint8_t 
 
     uint8_t raw83[11];
     if (!generate_short_alias(parent_cluster, name, raw83)) {
-        return 0; /* all of ~1..~9 collided */
+        /* #18: distinguish "ran out of ~1..~9 short-alias suffixes for this
+         * basename" from a generic disk-full failure - previously both
+         * looked identical (a bare 0 return, no log line), making the two
+         * very different problems indistinguishable from the serial log. */
+        serial_write_string("FAT32: short-alias generation exhausted (~1..~9 all collide) for ");
+        serial_write_string(name);
+        serial_write_string("\n");
+        return 0;
     }
 
     int num_entries = (name_len + FAT32_LFN_CHARS_PER_ENTRY - 1) / FAT32_LFN_CHARS_PER_ENTRY;

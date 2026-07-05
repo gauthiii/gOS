@@ -126,11 +126,23 @@ static void run_cd(struct window *win, const char *arg) {
             candidate[i] = term_cwd[i];
             i++;
         }
+        if (term_cwd[i] != '\0') {
+            /* #21: the joined path doesn't fit candidate[] even before
+             * appending arg - previously this silently truncated term_cwd
+             * itself mid-copy and kept going, potentially resolving (and
+             * `cd`-ing into) a directory the user never actually typed. */
+            term_append(win, "\ncd: path too long");
+            return;
+        }
         candidate[i++] = '/';
     }
     int j = 0;
     while (arg[j] && i < (int)sizeof(candidate) - 1) {
         candidate[i++] = arg[j++];
+    }
+    if (arg[j] != '\0') {
+        term_append(win, "\ncd: path too long");
+        return;
     }
     candidate[i] = '\0';
 
@@ -184,6 +196,19 @@ static void run_run(struct window *win, const char *arg) {
     if (arg[0] == '\0') {
         term_append(win, "\nusage: run <NAME.ELF>");
         return;
+    }
+    /* #22: split_command() only splits on the FIRST space, so "run My
+     * File.ELF" passes "My File.ELF" through as a single arg containing an
+     * embedded space - a name process_spawn() can never resolve. Previously
+     * this fell through to the generic "could not spawn" message,
+     * indistinguishable from a real missing-file or spawn-resource
+     * failure; call it out specifically instead. */
+    for (int k = 0; arg[k]; k++) {
+        if (arg[k] == ' ') {
+            term_append(win, "\nrun: invalid name (contains a space): ");
+            term_append(win, arg);
+            return;
+        }
     }
     int pid = process_spawn(arg);
     if (pid < 0) {

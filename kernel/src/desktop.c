@@ -159,6 +159,22 @@ void desktop_update(void) {
     prev_buttons = buttons;
 
     if (right_pressed_edge) {
+        /* #12: a right-click on the taskbar (a running-app entry, the clock,
+         * etc.) must never fall through to the desktop's own wallpaper menu
+         * - exclude the taskbar's y-range entirely, the same way a window
+         * on top of the click point is already excluded below. */
+        if (my >= (int64_t)fb_height() - TASKBAR_HEIGHT) {
+            return;
+        }
+        /* #24: a right-click landing on an open window while the menu is
+         * already visible dismisses it (matching the left-click dismiss
+         * behavior below), instead of leaving a stale menu on screen with
+         * no way to close it except retrying the exact same right-click
+         * spot on empty desktop. */
+        if (menu_visible && window_point_hits_any(mx, my)) {
+            menu_visible = 0;
+            return;
+        }
         if (!window_point_hits_any(mx, my)) {
             /* Right-clicking empty desktop (icons included - the menu
              * applies regardless of what's under the cursor) opens the

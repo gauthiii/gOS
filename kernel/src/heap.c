@@ -17,18 +17,47 @@ struct block_header {
     struct block_header *next; /* next block in address order, or NULL */
 };
 
-/* Footer is a single uint64_t magic value placed immediately after the
- * payload. Combined with the header magic, this lets kfree() and the
- * stress test detect buffer overruns: writing past the end of an
- * allocation corrupts the footer, and writing before the start corrupts
- * the header - both are checked on every kfree() call. */
-static inline uint64_t *footer_of(struct block_header *b) {
-    return (uint64_t *)((uint8_t *)(b + 1) + b->size);
+/* Footer sits immediately after the payload: magic first (so the existing
+ * overrun test, which stomps the first bytes past the payload, still hits
+ * it at the same offset it always has), then a copy of the block's own
+ * payload size. That size copy is what lets kfree() find the PRECEDING
+ * block in O(1) - walk backward from a block's own header by exactly
+ * (footer + prev payload size + header) bytes - enabling backward
+ * coalescing without a doubly-linked list. */
+struct block_footer {
+    uint64_t magic;
+    uint64_t size;
+};
+
+static inline struct block_footer *footer_of(struct block_header *b) {
+    return (struct block_footer *)((uint8_t *)(b + 1) + b->size);
+}
+
+static inline void set_footer(struct block_header *b) {
+    struct block_footer *f = footer_of(b);
+    f->magic = FOOTER_MAGIC;
+    f->size = b->size;
+}
+
+/* Returns the block immediately preceding b in address order, or 0 if b is
+ * the first block in the heap (no footer exists before it) or the bytes
+ * just before b don't look like a valid footer (defensive; should not
+ * happen in a non-corrupted heap). */
+static struct block_header *prev_block(struct block_header *b) {
+    if ((uint64_t)b <= HEAP_VIRT_START) {
+        return 0;
+    }
+    struct block_footer *pf = (struct block_footer *)((uint8_t *)b - sizeof(struct block_footer));
+    if (pf->magic != FOOTER_MAGIC) {
+        return 0;
+    }
+    return (struct block_header *)((uint8_t *)pf - pf->size - sizeof(struct block_header));
 }
 
 static struct block_header *heap_start;
 static uint64_t heap_mapped_end; /* first unmapped virtual address */
 static uint64_t corruption_count = 0;
+static uint64_t grow_count = 0;
 
 static int heap_grow(uint64_t min_extra_bytes) {
     uint64_t current_size = heap_mapped_end - HEAP_VIRT_START;
@@ -45,7 +74,12 @@ static int heap_grow(uint64_t min_extra_bytes) {
         vmm_map_page(heap_mapped_end, phys, PAGE_WRITABLE);
         heap_mapped_end += PAGE_SIZE;
     }
+    grow_count++;
     return 1;
+}
+
+uint64_t heap_grow_count(void) {
+    return grow_count;
 }
 
 void heap_init(void) {
@@ -57,10 +91,10 @@ void heap_init(void) {
 
     heap_start = (struct block_header *)HEAP_VIRT_START;
     heap_start->magic = HEADER_MAGIC;
-    heap_start->size = (heap_mapped_end - HEAP_VIRT_START) - sizeof(struct block_header) - sizeof(uint64_t);
+    heap_start->size = (heap_mapped_end - HEAP_VIRT_START) - sizeof(struct block_header) - sizeof(struct block_footer);
     heap_start->is_free = 1;
     heap_start->next = 0;
-    *footer_of(heap_start) = FOOTER_MAGIC;
+    set_footer(heap_start);
 
     serial_write_string("Heap initialized: ");
     serial_write_uint(heap_start->size);
@@ -82,19 +116,19 @@ void *kmalloc(size_t size) {
     struct block_header *b = heap_start;
     while (b) {
         if (b->is_free && b->size >= want) {
-            uint64_t min_split = sizeof(struct block_header) + sizeof(uint64_t) + 8;
+            uint64_t min_split = sizeof(struct block_header) + sizeof(struct block_footer) + 8;
             if (b->size >= want + min_split) {
                 struct block_header *new_block =
-                    (struct block_header *)((uint8_t *)(b + 1) + want + sizeof(uint64_t));
+                    (struct block_header *)((uint8_t *)(b + 1) + want + sizeof(struct block_footer));
                 new_block->magic = HEADER_MAGIC;
-                new_block->size = b->size - want - sizeof(struct block_header) - sizeof(uint64_t);
+                new_block->size = b->size - want - sizeof(struct block_header) - sizeof(struct block_footer);
                 new_block->is_free = 1;
                 new_block->next = b->next;
-                *footer_of(new_block) = FOOTER_MAGIC;
+                set_footer(new_block);
 
                 b->size = want;
                 b->next = new_block;
-                *footer_of(b) = FOOTER_MAGIC;
+                set_footer(b);
             }
             b->is_free = 0;
             return (void *)(b + 1);
@@ -104,7 +138,7 @@ void *kmalloc(size_t size) {
 
     /* No free block large enough - try growing the heap by enough for this
      * allocation plus a new block header/footer, then retry once. */
-    uint64_t extra = want + sizeof(struct block_header) + sizeof(uint64_t) + PAGE_SIZE;
+    uint64_t extra = want + sizeof(struct block_header) + sizeof(struct block_footer) + PAGE_SIZE;
     if (!heap_grow(extra)) {
         return 0; /* OOM */
     }
@@ -121,17 +155,17 @@ void *kmalloc(size_t size) {
     while (b->next) {
         b = b->next;
     }
-    uint64_t old_end = (uint64_t)(b + 1) + b->size + sizeof(uint64_t);
+    uint64_t old_end = (uint64_t)(b + 1) + b->size + sizeof(struct block_footer);
     if (b->is_free) {
         b->size = heap_mapped_end - old_end + b->size;
-        *footer_of(b) = FOOTER_MAGIC;
+        set_footer(b);
     } else {
         struct block_header *new_block = (struct block_header *)old_end;
         new_block->magic = HEADER_MAGIC;
-        new_block->size = heap_mapped_end - old_end - sizeof(struct block_header) - sizeof(uint64_t);
+        new_block->size = heap_mapped_end - old_end - sizeof(struct block_header) - sizeof(struct block_footer);
         new_block->is_free = 1;
         new_block->next = 0;
-        *footer_of(new_block) = FOOTER_MAGIC;
+        set_footer(new_block);
         b->next = new_block;
     }
 
@@ -149,7 +183,7 @@ void kfree(void *ptr) {
         serial_write_string("HEAP CORRUPTION: header magic mismatch at kfree() - buffer underrun likely\n");
         return;
     }
-    if (*footer_of(b) != FOOTER_MAGIC) {
+    if (footer_of(b)->magic != FOOTER_MAGIC) {
         corruption_count++;
         serial_write_string("HEAP CORRUPTION: footer magic mismatch at kfree() - buffer overrun likely\n");
         return;
@@ -168,15 +202,25 @@ void kfree(void *ptr) {
     b->is_free = 1;
 
     /* Coalesce forward with the immediately following block if it's also
-     * free. Backward coalescing is intentionally omitted for v1 (would
-     * need a doubly-linked list); this can fragment slightly more than a
-     * full coalescing allocator but is sufficient for the stress test and
-     * does not affect correctness. */
+     * free. */
     if (b->next && b->next->is_free) {
         struct block_header *n = b->next;
-        b->size += sizeof(struct block_header) + sizeof(uint64_t) + n->size;
+        b->size += sizeof(struct block_header) + sizeof(struct block_footer) + n->size;
         b->next = n->next;
-        *footer_of(b) = FOOTER_MAGIC;
+        set_footer(b);
+    }
+
+    /* Coalesce backward with the immediately preceding block if it's also
+     * free, found in O(1) via the footer's stored size (see prev_block()).
+     * Since the list is kept in address order, the preceding block's own
+     * `next` already points at b - merging just means growing prev to
+     * swallow b (which may have already grown via the forward coalesce
+     * above) and unlinking b from the list. */
+    struct block_header *p = prev_block(b);
+    if (p && p->is_free) {
+        p->size += sizeof(struct block_header) + sizeof(struct block_footer) + b->size;
+        p->next = b->next;
+        set_footer(p);
     }
 }
 

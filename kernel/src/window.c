@@ -232,13 +232,27 @@ void window_focus_next(void) {
     }
 }
 
+static int window_closing[MAX_WINDOWS];
+
 void window_close(int win_index) {
     if (win_index < 0 || win_index >= MAX_WINDOWS || !windows[win_index].in_use) {
         return;
     }
+    /* #23: guard against on_close re-entering window_close() for the same
+     * index (directly, or indirectly via something it triggers) - without
+     * this, the second call would re-run the z_order search/shrink below
+     * for an index already removed, and could invoke the same callback
+     * twice. A dedicated flag (rather than reordering in_use=0 earlier)
+     * keeps every other line in this function running in its original
+     * order/state. */
+    if (window_closing[win_index]) {
+        return;
+    }
+    window_closing[win_index] = 1;
     if (windows[win_index].on_close) {
         windows[win_index].on_close(&windows[win_index]);
     }
+    window_closing[win_index] = 0;
     int pos = -1;
     for (int i = 0; i < window_count; i++) {
         if (z_order[i] == win_index) {

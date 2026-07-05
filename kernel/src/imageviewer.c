@@ -55,6 +55,21 @@ int imageviewer_open(const char *path) {
         taskbar_flash_message("Could not open image - file not found");
         return -1;
     }
+    /* #27: an explicit pre-check against remaining heap, rather than just
+     * relying on kmalloc() to fail gracefully. The decoded pixel buffer
+     * bmp_decode() allocates internally is roughly 4x the raw file size
+     * (uint32_t per pixel vs. ~3 bytes/pixel on-disk for 24bpp), so budget
+     * for the file buffer PLUS that decode buffer up front - a near-full
+     * heap could otherwise let the file buffer kmalloc succeed and then
+     * fail deep inside bmp_decode() with a much less specific message. */
+    uint64_t estimated_total = ent.size + ent.size * 4;
+    if (estimated_total > heap_free_bytes()) {
+        serial_write_string("ImageViewer: \"");
+        serial_write_string(path);
+        serial_write_string("\" too large for available heap\n");
+        taskbar_flash_message("Could not open image - image too large");
+        return -1;
+    }
     uint8_t *buf = (uint8_t *)kmalloc(ent.size);
     if (!buf) {
         serial_write_string("ImageViewer: kmalloc for file buffer failed\n");

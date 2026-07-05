@@ -2,6 +2,8 @@
 #include <wallpaper.h>
 #include <fat32.h>
 #include <serial.h>
+#include <stddef.h>
+#include <fb.h>
 
 #define SETTINGS_PATH "GOS.CFG"
 #define SETTINGS_MAGIC 0x47534F47u /* 'GOSG' little-endian in the file */
@@ -9,8 +11,10 @@
  * option index (Gradient/Default/Custom/Mac/Windows). The version check
  * below means a v1 file is treated as "wrong version" and ignored rather
  * than misread - falling back to defaults (wallpaper option 1) is harmless
- * and simpler than writing a v1->v2 migration for one byte. */
-#define SETTINGS_VERSION 2u
+ * and simpler than writing a v1->v2 migration for one byte.
+ * Bumped 2 -> 3: added a checksum field (audit2.md #17) so a hand-corrupted
+ * or torn write with intact magic/version/size is still caught. */
+#define SETTINGS_VERSION 3u
 
 /* Fixed-size binary record - deliberately simple (no text parsing) since
  * this is a from-scratch OS with no existing config-file convention to
@@ -23,7 +27,23 @@ struct settings_record {
     uint8_t reserved[7]; /* pad to 8-byte alignment for the fields below */
     int64_t fm_x, fm_y;
     uint64_t fm_w, fm_h;
+    uint32_t checksum; /* additive checksum over every byte above, computed last */
+    uint8_t checksum_pad[4];
 } __attribute__((packed));
+
+/* Simple additive checksum: sum every byte of the record up to (not
+ * including) the checksum field itself. Not cryptographic - just enough to
+ * catch the accidental-corruption/torn-write scenario the audit describes,
+ * matching this kernel's existing lightweight validation style. */
+static uint32_t settings_checksum(const struct settings_record *rec) {
+    const uint8_t *bytes = (const uint8_t *)rec;
+    uint64_t len = offsetof(struct settings_record, checksum);
+    uint32_t sum = 0;
+    for (uint64_t i = 0; i < len; i++) {
+        sum += bytes[i];
+    }
+    return sum;
+}
 
 static int64_t fm_x = SETTINGS_DEFAULT_FM_X;
 static int64_t fm_y = SETTINGS_DEFAULT_FM_Y;
@@ -42,12 +62,31 @@ void settings_load(void) {
         serial_write_string("Settings: " SETTINGS_PATH " malformed or wrong version - using defaults\n");
         return;
     }
+    if (rec.checksum != settings_checksum(&rec)) {
+        serial_write_string("Settings: " SETTINGS_PATH " checksum mismatch - corrupted, using defaults\n");
+        return;
+    }
+
+    /* Sanity-check loaded File Manager geometry against the framebuffer
+     * before trusting it: a corrupted or hand-edited zero/negative/off-screen
+     * value used to be applied verbatim, producing an unusable window. */
+    uint64_t screen_w = fb_width();
+    uint64_t screen_h = fb_height();
+    int fm_geometry_ok = rec.fm_w > 0 && rec.fm_h > 0 &&
+                          rec.fm_w <= screen_w && rec.fm_h <= screen_h &&
+                          rec.fm_x >= 0 && rec.fm_y >= 0 &&
+                          (uint64_t)rec.fm_x + rec.fm_w <= screen_w &&
+                          (uint64_t)rec.fm_y + rec.fm_h <= screen_h;
 
     wallpaper_select(rec.wallpaper_selection);
-    fm_x = rec.fm_x;
-    fm_y = rec.fm_y;
-    fm_w = rec.fm_w;
-    fm_h = rec.fm_h;
+    if (fm_geometry_ok) {
+        fm_x = rec.fm_x;
+        fm_y = rec.fm_y;
+        fm_w = rec.fm_w;
+        fm_h = rec.fm_h;
+    } else {
+        serial_write_string("Settings: " SETTINGS_PATH " File Manager geometry invalid - using defaults\n");
+    }
 
     serial_write_string("Settings: loaded " SETTINGS_PATH " - wallpaper_selection=");
     serial_write_uint(rec.wallpaper_selection);
@@ -73,6 +112,8 @@ void settings_save(void) {
     rec.fm_y = fm_y;
     rec.fm_w = fm_w;
     rec.fm_h = fm_h;
+    rec.checksum = settings_checksum(&rec);
+    rec.checksum_pad[0] = rec.checksum_pad[1] = rec.checksum_pad[2] = rec.checksum_pad[3] = 0;
 
     struct fat_dirent ent;
     if (!fat_resolve_path(SETTINGS_PATH, &ent)) {

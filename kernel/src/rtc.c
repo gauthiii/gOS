@@ -26,18 +26,28 @@ static uint8_t bcd_to_bin(uint8_t v) {
     return (uint8_t)((v & 0x0F) + (v / 16) * 10);
 }
 
-static void read_raw(uint8_t *sec, uint8_t *min, uint8_t *hour, uint8_t *day, uint8_t *month, uint8_t *year) {
+/* #26: register 0x32 is the de-facto standard (also what ACPI's FADT
+ * "Century" field usually points at) CMOS century register on real
+ * hardware, but it's not universally implemented - some CMOS chips/BIOSes
+ * leave it as garbage or always 0. Reading it speculatively and only
+ * trusting it if it decodes (BCD or binary, matching status_b) to a
+ * plausible century (19-21, i.e. covers 1900-2199) means a working century
+ * register is honored, while a genuinely absent/garbage one safely falls
+ * back to the previous hardcoded "+2000" behavior instead of producing a
+ * nonsense year. */
+static void read_raw(uint8_t *sec, uint8_t *min, uint8_t *hour, uint8_t *day, uint8_t *month, uint8_t *year, uint8_t *century) {
     *sec = cmos_read(0x00);
     *min = cmos_read(0x02);
     *hour = cmos_read(0x04);
     *day = cmos_read(0x07);
     *month = cmos_read(0x08);
     *year = cmos_read(0x09);
+    *century = cmos_read(0x32);
 }
 
 void rtc_read(struct rtc_time *out) {
-    uint8_t sec, min, hour, day, month, year;
-    uint8_t sec2, min2, hour2, day2, month2, year2;
+    uint8_t sec, min, hour, day, month, year, century;
+    uint8_t sec2, min2, hour2, day2, month2, year2, century2;
 
     /* The RTC's registers are only guaranteed stable when Status Register
      * A's "update in progress" bit is clear; even then, a read can still
@@ -45,10 +55,11 @@ void rtc_read(struct rtc_time *out) {
      * re-reading until two consecutive (post-not-updating) reads agree. */
     do {
         while (rtc_update_in_progress()) { }
-        read_raw(&sec, &min, &hour, &day, &month, &year);
+        read_raw(&sec, &min, &hour, &day, &month, &year, &century);
         while (rtc_update_in_progress()) { }
-        read_raw(&sec2, &min2, &hour2, &day2, &month2, &year2);
-    } while (sec != sec2 || min != min2 || hour != hour2 || day != day2 || month != month2 || year != year2);
+        read_raw(&sec2, &min2, &hour2, &day2, &month2, &year2, &century2);
+    } while (sec != sec2 || min != min2 || hour != hour2 || day != day2 || month != month2 || year != year2 ||
+             century != century2);
 
     uint8_t status_b = cmos_read(0x0B);
 
@@ -63,6 +74,7 @@ void rtc_read(struct rtc_time *out) {
         day = bcd_to_bin(day);
         month = bcd_to_bin(month);
         year = bcd_to_bin(year);
+        century = bcd_to_bin(century);
     }
 
     if (!(status_b & 0x02) && (hour & 0x80)) {
@@ -78,5 +90,9 @@ void rtc_read(struct rtc_time *out) {
     out->hour = hour;
     out->day = day;
     out->month = month;
-    out->year = (uint16_t)year + 2000;
+    if (century >= 19 && century <= 21) {
+        out->year = (uint16_t)century * 100 + year;
+    } else {
+        out->year = (uint16_t)year + 2000; /* register 0x32 absent/garbage - fall back to the old assumption */
+    }
 }

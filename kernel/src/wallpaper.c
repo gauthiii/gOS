@@ -75,6 +75,10 @@ void wallpaper_select(int idx) {
         serial_write_string("Wallpaper: wallpaper_select() ignored - index out of range\n");
         return;
     }
+    if (idx == current_selection) {
+        serial_write_string("Wallpaper: selection unchanged - skipping reload\n");
+        return;
+    }
     if (idx == 0) {
         if (image_pixels) {
             kfree(image_pixels);
