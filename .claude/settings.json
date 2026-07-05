@@ -25,7 +25,13 @@
       "Bash(mv kernel/src/start.c.bak /tmp/start.c.bak.discard)",
       "Bash(sed -i '' 's/for \\(int i = 0; i < 2; i++\\) {/for \\(int i = 0; i < 10; i++\\) {/' kernel/src/start.c)",
       "Bash(git diff *)",
-      "Bash(git check-ignore *)"
+      "Bash(git check-ignore *)",
+      "Bash(make kernel *)",
+      "Bash(rm -f disk_images/gos_disk.img disk_images/.disk_recipe_hash)",
+      "Bash(timeout 180 make diagnostic)",
+      "Bash(timeout 90 make diagnostic)",
+      "Bash(*)",
+      "Bash(git commit *)"
     ]
   }
 }
